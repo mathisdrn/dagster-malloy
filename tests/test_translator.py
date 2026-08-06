@@ -29,7 +29,7 @@ def test_default_translator_spec():
     translator = MalloyTranslator()
     spec = translator.get_asset_spec(trans_data)
 
-    assert spec.kinds == {"⚙️\u200b Query", "malloy", "duckdb"}
+    assert spec.kinds == {"⚙️ Query", "malloy", "duckdb"}
     assert spec.key == AssetKey(["sales", "monthly_revenue"])
     assert spec.description == "Monthly revenue query"
     assert spec.group_name == "malloy"

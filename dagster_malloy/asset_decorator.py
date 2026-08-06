@@ -153,7 +153,7 @@ def load_malloy_assets(
                 dash_kinds = {"dashboard"}
                 if query_spec.kinds:
                     for k in query_spec.kinds:
-                        if k not in {"query", "sql", "malloy", "semantic_model", "🔍 query", "🔍  query", "⚙️\u200b Query"}:
+                        if k not in {"query", "sql", "malloy", "semantic_model", "🔍 query", "🔍  query", "⚙️ Query"}:
                             dash_kinds.add(k)
 
                 dash_spec = AssetSpec(
