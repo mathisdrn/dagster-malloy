@@ -41,12 +41,21 @@ query: region_dashboard is orders -> {
 
 
 def test_load_malloy_assets_discovery(temp_malloy_dir: Path):
-    assets_def = load_malloy_assets(temp_malloy_dir)
+    assets_def = load_malloy_assets(temp_malloy_dir, include_sources=False)
 
     assert assets_def is not None
     assert len(assets_def.keys) == 3  # revenue_by_region, region_dashboard, region_dashboard_dashboard
     expected_key = AssetKey(["sales", "revenue_by_region"])
     assert expected_key in assets_def.keys
+
+
+def test_load_malloy_assets_with_sources(temp_malloy_dir: Path):
+    assets_def = load_malloy_assets(temp_malloy_dir, include_sources=True)
+
+    assert assets_def is not None
+    assert len(assets_def.keys) == 4  # orders (source), revenue_by_region, region_dashboard, region_dashboard_dashboard
+    source_key = AssetKey(["sales", "orders"])
+    assert source_key in assets_def.keys
 
 
 @patch("dagster_malloy.resource.MalloyCliClient")
@@ -64,7 +73,7 @@ def test_materialize_malloy_assets(mock_cli_cls, temp_malloy_dir: Path):
     )
     mock_cli_cls.return_value = mock_cli
 
-    assets_def = load_malloy_assets(temp_malloy_dir)
+    assets_def = load_malloy_assets(temp_malloy_dir, include_sources=False)
     resource = MalloyResource(execution_mode="cli")
 
     result = materialize_to_memory(

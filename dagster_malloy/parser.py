@@ -51,7 +51,7 @@ class MalloyParser:
 
     # Regex patterns for parsing Malloy construct declarations
     SOURCE_PATTERN = re.compile(
-        r"source\s*:\s*([a-zA-Z0-9_]+)\s+is\s+([a-zA-Z0-9_]+)\.(table|sql)\s*\(\s*['\"]([^'\"]+)['\"]",
+        r"source\s*:\s*([a-zA-Z0-9_]+)\s+is\s+([a-zA-Z0-9_\.]+)\s*\(\s*['\"]([^'\"]+)['\"]",
         re.IGNORECASE,
     )
     SOURCE_SIMPLE_PATTERN = re.compile(
@@ -166,12 +166,13 @@ class MalloyParser:
                 i += 1
                 continue
 
-            # Source definition: source: foo is duckdb.table('file.parquet')
+            # Source definition: source: foo is orca.table('file.parquet')
             source_match = cls.SOURCE_PATTERN.search(line_str)
             if source_match:
                 source_name = source_match.group(1)
-                conn = source_match.group(2)
-                table_or_sql = source_match.group(4)
+                conn_raw = source_match.group(2)
+                conn = conn_raw.split(".")[0] if "." in conn_raw else conn_raw
+                table_or_sql = source_match.group(3)
                 raw_block, consumed_count = cls._extract_multiline_block(lines, i)
 
                 parsed.sources[source_name] = MalloySourceInfo(

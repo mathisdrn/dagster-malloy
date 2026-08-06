@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -15,6 +16,32 @@ except ImportError:
 class MalloyCliError(Exception):
     """Raised when malloy-cli execution fails."""
     pass
+
+
+def _format_cli_error(raw_output: str) -> str:
+    """Parses JSON error structures from malloy-cli and formats them into a clean error string."""
+    raw_str = (raw_output or "").strip()
+    if not raw_str:
+        return "Unknown malloy-cli execution error."
+
+    try:
+        data = json.loads(raw_str)
+        if isinstance(data, dict) and "error" in data:
+            err_msg = str(data["error"]).strip()
+            return f"Malloy Compiler Error:\n{err_msg}"
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    json_match = re.search(r'\{\s*"error"\s*:\s*".*?"\s*\}', raw_str, re.DOTALL)
+    if json_match:
+        try:
+            data = json.loads(json_match.group(0))
+            if isinstance(data, dict) and "error" in data:
+                return f"Malloy Compiler Error:\n{data['error'].strip()}"
+        except Exception:
+            pass
+
+    return raw_str
 
 
 class MalloyCliClient:
@@ -80,7 +107,8 @@ class MalloyCliClient:
         )
 
         if proc.returncode != 0:
-            raise MalloyCliError(f"malloy-cli compile failed (code {proc.returncode}): {proc.stderr or proc.stdout}")
+            formatted_err = _format_cli_error(proc.stderr or proc.stdout)
+            raise MalloyCliError(f"malloy-cli compile failed (code {proc.returncode}):\n{formatted_err}")
 
         raw_output = proc.stdout.strip()
         try:
@@ -95,7 +123,6 @@ class MalloyCliClient:
                     return first.get("sql", str(first)), first.get("dialect", "sql")
             return raw_output, "sql"
         except json.JSONDecodeError:
-            # Fallback if raw text SQL output
             return raw_output, "sql"
 
     def run(
@@ -134,7 +161,8 @@ class MalloyCliClient:
         )
 
         if proc.returncode != 0:
-            raise MalloyCliError(f"malloy-cli run failed (code {proc.returncode}): {proc.stderr or proc.stdout}")
+            formatted_err = _format_cli_error(proc.stderr or proc.stdout)
+            raise MalloyCliError(f"malloy-cli run failed (code {proc.returncode}):\n{formatted_err}")
 
         raw_output = proc.stdout.strip()
         if not raw_output:

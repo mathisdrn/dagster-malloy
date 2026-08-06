@@ -87,6 +87,7 @@ def load_malloy_assets(
     translator: Optional[MalloyTranslator] = None,
     name: Optional[str] = None,
     create_dashboards: bool = True,
+    include_sources: bool = True,
 ) -> AssetsDefinition:
     """Loads Malloy queries and models from a file or directory as Dagster Software-Defined Assets."""
     path_obj = Path(path).resolve()
@@ -110,6 +111,19 @@ def load_malloy_assets(
     for file in malloy_files:
         parsed_model = parser.parse_file(file)
 
+        # 1. Register Source Semantic Model Specs if requested
+        if include_sources:
+            for s_name, s_info in parsed_model.sources.items():
+                source_spec = translator.get_source_asset_spec(s_name, file, parsed_model)
+                specs.append(source_spec)
+                asset_query_map[source_spec.key] = {
+                    "type": "source",
+                    "file_path": file,
+                    "source_name": s_name,
+                    "source_info": s_info,
+                }
+
+        # 2. Register Query Asset Specs
         for q_name, q_info in parsed_model.queries.items():
             trans_data = MalloyTranslatorData(
                 query_info=q_info,
@@ -150,6 +164,14 @@ def load_malloy_assets(
 
     multi_asset_name = name or f"malloy_assets_{path_obj.stem.replace('.', '_')}"
 
+    def _type_order(info: Dict[str, Any]) -> int:
+        asset_t = info.get("type", "query")
+        if asset_t == "source":
+            return 0
+        elif asset_t == "query":
+            return 1
+        return 2
+
     @multi_asset(
         specs=specs,
         name=multi_asset_name,
@@ -162,7 +184,7 @@ def load_malloy_assets(
 
         selected_keys = sorted(
             context.selected_asset_keys,
-            key=lambda k: 1 if asset_query_map.get(k, {}).get("type") == "dashboard" else 0,
+            key=lambda k: _type_order(asset_query_map.get(k, {})),
         )
 
         for target_key in selected_keys:
@@ -172,11 +194,27 @@ def load_malloy_assets(
             info = asset_query_map[target_key]
             asset_type = info.get("type", "query")
             file_path = info["file_path"]
-            query_name = info["query_name"]
 
             start_time = time.time()
 
-            if asset_type == "query":
+            if asset_type == "source":
+                s_info = info.get("source_info")
+                s_name = info.get("source_name")
+                metadata = {
+                    "file_path": str(file_path),
+                    "source_name": s_name,
+                    "status": "Semantic Model Registered",
+                }
+                if s_info and s_info.table_or_sql:
+                    metadata["table_or_sql"] = s_info.table_or_sql
+                if s_info and s_info.raw_code:
+                    metadata["malloy_source_code"] = MetadataValue.md(
+                        f"```malloy\n{s_info.raw_code}\n```"
+                    )
+                yield MaterializeResult(asset_key=target_key, metadata=metadata)
+
+            elif asset_type == "query":
+                query_name = info["query_name"]
                 sql, dialect = malloy_res.compile_query(file_path=file_path, query_name=query_name)
                 res_data = malloy_res.execute_query(file_path=file_path, query_name=query_name)
                 duration = time.time() - start_time
@@ -206,6 +244,7 @@ def load_malloy_assets(
 
             else:
                 # Dashboard Asset Materialization
+                query_name = info["query_name"]
                 res_data = malloy_res.execute_query(file_path=file_path, query_name=query_name)
                 duration = time.time() - start_time
                 row_count = _get_row_count(res_data)
@@ -234,6 +273,7 @@ def malloy_assets(
     translator: Optional[MalloyTranslator] = None,
     group_name: Optional[str] = None,
     create_dashboards: bool = True,
+    include_sources: bool = True,
 ) -> Callable:
     """Decorator version of load_malloy_assets."""
     def decorator(fn: Callable) -> AssetsDefinition:
@@ -241,6 +281,7 @@ def malloy_assets(
             path=path,
             translator=translator,
             create_dashboards=create_dashboards,
+            include_sources=include_sources,
         )
 
     return decorator

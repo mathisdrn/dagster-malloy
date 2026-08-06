@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dagster-malloy"
-version = "0.1.1"
+version = "0.1.2"
 description = "Unofficial Dagster integration for Malloy models and notebooks"
 readme = "README.md"
 requires-python = ">=3.9"

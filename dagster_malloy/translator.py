@@ -11,7 +11,7 @@ from dagster import (
     LocalFileCodeReference,
     MetadataValue,
 )
-from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo
+from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo, MalloySourceInfo
 
 
 @dataclass
@@ -37,6 +37,11 @@ class MalloyTranslator:
         stem = data.file_path.stem.replace(".", "_")
         return AssetKey([stem, data.query_info.name])
 
+    def get_source_asset_key(self, source_name: str, file_path: Path) -> AssetKey:
+        """Computes the Dagster AssetKey for a Malloy source definition (semantic model)."""
+        stem = file_path.stem.replace(".", "_")
+        return AssetKey([stem, source_name])
+
     def get_deps(self, data: MalloyTranslatorData) -> Iterable[AssetKey]:
         """Computes upstream AssetKey dependencies for a Malloy query asset."""
         deps = []
@@ -51,7 +56,7 @@ class MalloyTranslator:
                     deps.append(key)
 
         if data.query_info.source_name:
-            source_key = AssetKey(data.query_info.source_name)
+            source_key = self.get_source_asset_key(data.query_info.source_name, data.file_path)
             if source_key not in deps:
                 deps.append(source_key)
 
@@ -157,4 +162,51 @@ class MalloyTranslator:
             tags=self.get_tags(data),
             owners=self.get_owners(data),
             metadata=self.get_metadata(data),
+        )
+
+    def get_source_asset_spec(
+        self, source_name: str, file_path: Path, parsed_model: MalloyParsedModel
+    ) -> AssetSpec:
+        """Constructs an AssetSpec for a Malloy source semantic model."""
+        source_info = parsed_model.sources.get(source_name)
+        deps = []
+        if source_info and source_info.table_or_sql:
+            table = source_info.table_or_sql.strip("'\"")
+            path_obj = Path(table)
+            parts = list(path_obj.parts)
+            if parts:
+                parts[-1] = path_obj.stem
+                deps.append(AssetKey(parts))
+
+        kinds = {"malloy", "semantic_model"}
+        if source_info and source_info.connection:
+            kinds.add(source_info.connection.lower())
+
+        metadata = {
+            "file_path": str(file_path),
+            "source_name": source_name,
+        }
+        if source_info and source_info.table_or_sql:
+            metadata["table_or_sql"] = source_info.table_or_sql
+        if source_info and source_info.raw_code:
+            metadata["malloy_source_code"] = MetadataValue.md(
+                f"```malloy\n{source_info.raw_code}\n```"
+            )
+
+        metadata["dagster/code_references"] = CodeReferencesMetadataValue(
+            code_references=[
+                LocalFileCodeReference(
+                    file_path=str(file_path),
+                    line_number=source_info.line_number if source_info else 1,
+                )
+            ]
+        )
+
+        return AssetSpec(
+            key=self.get_source_asset_key(source_name, file_path),
+            deps=deps,
+            description=f"Malloy semantic model '{source_name}' defined in {file_path.name}",
+            group_name="malloy_sources",
+            kinds=kinds,
+            metadata=metadata,
         )
