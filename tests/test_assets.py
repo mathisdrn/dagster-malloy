@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 import pytest
 from dagster import (
     AssetKey,
@@ -64,7 +64,7 @@ def test_materialize_malloy_assets(mock_cli_cls, temp_malloy_dir: Path):
         "SELECT region, sum(price * qty) AS total_revenue FROM orders GROUP BY region",
         "duckdb",
     )
-    mock_cli.run.return_value = pd.DataFrame(
+    mock_cli.run.return_value = pl.DataFrame(
         [
             {"region": "US", "total_revenue": 1000},
             {"region": "EU", "total_revenue": 800},
@@ -116,7 +116,7 @@ query: top_comments is comments -> {
     with patch("dagster_malloy.resource.MalloyCliClient") as mock_cli_cls:
         mock_cli = MagicMock()
         mock_cli.compile.return_value = ("SELECT 1", "duckdb")
-        mock_cli.run.return_value = pd.DataFrame([{"body_len": 10, "cnt": 1}])
+        mock_cli.run.return_value = pl.DataFrame([{"body_len": 10, "cnt": 1}])
         mock_cli_cls.return_value = mock_cli
 
         resource = MalloyResource(execution_mode="cli")
@@ -141,7 +141,7 @@ query: top_comments is comments -> {
 def test_subset_materialization(mock_cli_cls, temp_malloy_dir: Path):
     mock_cli = MagicMock()
     mock_cli.compile.return_value = ("SELECT 1", "duckdb")
-    mock_cli.run.return_value = pd.DataFrame([{"region": "US", "total_revenue": 1000}])
+    mock_cli.run.return_value = pl.DataFrame([{"region": "US", "total_revenue": 1000}])
     mock_cli_cls.return_value = mock_cli
 
     assets_def = load_malloy_assets(temp_malloy_dir, include_sources=True, can_subset=True)

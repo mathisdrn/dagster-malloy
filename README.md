@@ -35,11 +35,7 @@ This generates a sample project (`./malloy_demo`) and launches the Dagster UI at
 uv add dagster-malloy
 ```
 
-To enable DataFrame outputs via pandas:
 
-```bash
-uv add "dagster-malloy[pandas]"
-```
 
 To enable the in-process Python SDK backend:
 

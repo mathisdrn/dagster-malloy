@@ -3,10 +3,7 @@
 from pathlib import Path
 from typing import Any, Optional, Tuple, Union
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
+import polars as pl
 
 import importlib.util
 
@@ -62,22 +59,16 @@ class MalloyPythonClient:
             model = runtime.load_model(str(file_path))
             result = model.run(query_name) if query_name else model.run()
 
-            if hasattr(result, "to_dataframe") and pd is not None:
-                return result.to_dataframe()
-            elif hasattr(result, "to_dict"):
-                data = result.to_dict()
-                if pd is not None:
-                    return pd.DataFrame(data)
-                return data
-            elif hasattr(result, "to_json"):
+            if hasattr(result, "to_dict"):
+                return pl.DataFrame(result.to_dict())
+            if hasattr(result, "to_dataframe"):
+                try:
+                    return pl.from_pandas(result.to_dataframe())
+                except Exception:
+                    pass
+            if hasattr(result, "to_json"):
                 import json
-                parsed = json.loads(result.to_json())
-                if pd is not None:
-                    return pd.DataFrame(parsed)
-                return parsed
-
-            if pd is not None:
-                return pd.DataFrame()
-            return []
+                return pl.DataFrame(json.loads(result.to_json()))
+            return pl.DataFrame()
         except Exception as e:
             raise MalloyPythonError(f"Malloy Python SDK run failed: {e}") from e

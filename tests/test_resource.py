@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 
 from dagster_malloy.resource import MalloyResource
 
@@ -41,12 +41,12 @@ def test_resource_compile_query_cli(mock_cli_cls):
 @patch("dagster_malloy.resource.MalloyCliClient")
 def test_resource_execute_query_cli(mock_cli_cls):
     mock_instance = MagicMock()
-    mock_instance.run.return_value = pd.DataFrame([{"a": 1}])
+    mock_instance.run.return_value = pl.DataFrame([{"a": 1}])
     mock_cli_cls.return_value = mock_instance
 
     resource = MalloyResource(execution_mode="cli")
     df = resource.execute_query(file_path="model.malloy", query_name="q1")
 
-    assert isinstance(df, pd.DataFrame)
+    assert isinstance(df, pl.DataFrame)
     assert len(df) == 1
     mock_instance.run.assert_called_once_with(file_path="model.malloy", query_name="q1", raw_query=None)

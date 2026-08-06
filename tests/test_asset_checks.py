@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 import pytest
 from dagster import AssetKey
 
@@ -32,7 +32,7 @@ query: check_no_null_users is users -> {
 def test_malloy_asset_check_execution_passing(mock_cli_cls, temp_check_file: Path):
     mock_cli = MagicMock()
     # 0 failing rows
-    mock_cli.run.return_value = pd.DataFrame([{"null_count": 0}])
+    mock_cli.run.return_value = pl.DataFrame([{"null_count": 0}])
     mock_cli_cls.return_value = mock_cli
 
     target_key = AssetKey(["users", "user_table"])

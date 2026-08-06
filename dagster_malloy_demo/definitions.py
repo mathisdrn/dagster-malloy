@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import pandas as pd
+import polars as pl
 from dagster import AssetKey, Definitions, MaterializeResult, asset
 
 from dagster_malloy import (
@@ -27,14 +27,14 @@ data_dir = project_dir / "data"
 def raw_customers_ingestion() -> MaterializeResult:
     data_dir.mkdir(exist_ok=True)
     parquet_path = data_dir / "customers.parquet"
-    df = pd.DataFrame([
+    df = pl.DataFrame([
         {"id": 1, "name": "Alice Smith", "segment": "Enterprise", "state": "CA"},
         {"id": 2, "name": "Bob Jones", "segment": "SMB", "state": "NY"},
         {"id": 3, "name": "Charlie Brown", "segment": "Consumer", "state": "TX"},
         {"id": 4, "name": "Diana Prince", "segment": "Enterprise", "state": "CA"},
         {"id": 5, "name": "Evan Wright", "segment": "SMB", "state": "WA"},
     ])
-    df.to_parquet(parquet_path)
+    df.write_parquet(parquet_path)
     return MaterializeResult(metadata={"row_count": len(df), "path": str(parquet_path)})
 
 
@@ -47,7 +47,7 @@ def raw_customers_ingestion() -> MaterializeResult:
 def raw_products_ingestion() -> MaterializeResult:
     data_dir.mkdir(exist_ok=True)
     parquet_path = data_dir / "products.parquet"
-    df = pd.DataFrame([
+    df = pl.DataFrame([
         {
             "id": 101,
             "title": "Laptop Pro 15",
@@ -79,7 +79,7 @@ def raw_products_ingestion() -> MaterializeResult:
             "base_cost": 450.0,
         },
     ])
-    df.to_parquet(parquet_path)
+    df.write_parquet(parquet_path)
     return MaterializeResult(metadata={"row_count": len(df), "path": str(parquet_path)})
 
 
@@ -92,7 +92,7 @@ def raw_products_ingestion() -> MaterializeResult:
 def raw_orders_ingestion() -> MaterializeResult:
     data_dir.mkdir(exist_ok=True)
     parquet_path = data_dir / "orders.parquet"
-    df = pd.DataFrame([
+    df = pl.DataFrame([
         {
             "id": 1,
             "customer_id": 1,
@@ -150,7 +150,7 @@ def raw_orders_ingestion() -> MaterializeResult:
             "order_date": "2026-08-05",
         },
     ])
-    df.to_parquet(parquet_path)
+    df.write_parquet(parquet_path)
     return MaterializeResult(metadata={"row_count": len(df), "path": str(parquet_path)})
 
 
@@ -168,8 +168,8 @@ malloy_assets = load_malloy_assets(
     description="Downstream Python asset that consumes Malloy-computed customer analytics data.",
 )
 def vip_customer_digest() -> MaterializeResult:
-    df = pd.read_parquet(data_dir / "orders.parquet")
-    vip_count = len(df[df["price"] > 500])
+    df = pl.read_parquet(data_dir / "orders.parquet")
+    vip_count = df.filter(pl.col("price") > 500).height
     return MaterializeResult(
         metadata={
             "vip_count": vip_count,

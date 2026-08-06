@@ -16,10 +16,7 @@ from dagster import (
     multi_asset,
 )
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
+import polars as pl
 
 from dagster_malloy.parser import MalloyParser
 from dagster_malloy.resource import MalloyResource
@@ -27,10 +24,10 @@ from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData
 
 
 def _dataset_to_table_schema(data: Any) -> TableSchema:
-    """Converts a pandas DataFrame or list of dicts into a Dagster TableSchema."""
+    """Converts a polars DataFrame or list of dicts into a Dagster TableSchema."""
     columns = []
-    if pd is not None and isinstance(data, pd.DataFrame):
-        for col_name, dtype in data.dtypes.items():
+    if isinstance(data, pl.DataFrame):
+        for col_name, dtype in data.schema.items():
             columns.append(
                 TableColumn(
                     name=str(col_name),
@@ -52,11 +49,11 @@ def _dataset_to_table_schema(data: Any) -> TableSchema:
 
 
 def _dataset_to_markdown_preview(data: Any, max_rows: int = 10) -> str:
-    """Renders a pandas DataFrame or list of dicts as a Markdown preview table."""
-    if pd is not None and isinstance(data, pd.DataFrame):
-        preview_df = data.head(max_rows)
-        return preview_df.to_markdown(index=False)
-    elif isinstance(data, list) and len(data) > 0:
+    """Renders a polars DataFrame or list of dicts as a Markdown preview table."""
+    if isinstance(data, pl.DataFrame):
+        data = data.head(max_rows).to_dicts()
+
+    if isinstance(data, list) and len(data) > 0:
         preview_rows = data[:max_rows]
         first_row = preview_rows[0]
         if isinstance(first_row, dict):

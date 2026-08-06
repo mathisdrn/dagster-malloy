@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dagster-malloy"
-version = "0.1.7"
+version = "0.1.8"
 description = "Unofficial Dagster integration for Malloy models and notebooks"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -15,6 +15,7 @@ authors = [
 dependencies = [
     "dagster>=1.6.0",
     "pydantic>=2.0.0",
+    "polars>=0.20.0",
 ]
 
 [project.urls]
@@ -26,9 +27,6 @@ Issues = "https://github.com/mathisdrn/dagster-malloy/issues"
 dagster-malloy-demo = "dagster_malloy_demo.cli:run_demo"
 
 [project.optional-dependencies]
-pandas = [
-    "pandas>=1.5.0",
-]
 dev = [
     "dagster-dg-cli>=1.12.0",
     "dagster-webserver>=1.6.0",
@@ -39,7 +37,7 @@ python-backend = [
 test = [
     "pytest>=7.0.0",
     "duckdb>=0.9.0",
-    "pandas>=1.5.0",
+    "polars>=0.20.0",
     "malloy>=2024.1000",
 ]
 

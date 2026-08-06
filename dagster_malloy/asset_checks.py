@@ -11,10 +11,7 @@ from dagster import (
     asset_check,
 )
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
+import polars as pl
 
 from dagster_malloy.parser import MalloyParser
 from dagster_malloy.resource import MalloyResource
@@ -55,10 +52,10 @@ def build_malloy_asset_checks(
                     row_count = 0
                     first_row = {}
 
-                    if pd is not None and isinstance(res_data, pd.DataFrame):
+                    if isinstance(res_data, pl.DataFrame):
                         row_count = len(res_data)
-                        if not res_data.empty:
-                            first_row = res_data.iloc[0].to_dict()
+                        if not res_data.is_empty():
+                            first_row = res_data.row(0, named=True)
                     elif isinstance(res_data, list):
                         row_count = len(res_data)
                         if row_count > 0 and isinstance(res_data[0], dict):

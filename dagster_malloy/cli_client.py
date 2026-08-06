@@ -7,10 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
+import polars as pl
 
 
 class MalloyCliError(Exception):
@@ -194,7 +191,7 @@ class MalloyCliClient:
 
         raw_output = proc.stdout.strip()
         if not raw_output:
-            return pd.DataFrame() if pd is not None else []
+            return pl.DataFrame()
 
         try:
             parsed = json.loads(raw_output)
@@ -206,8 +203,6 @@ class MalloyCliClient:
             elif isinstance(parsed, dict):
                 rows = [parsed]
 
-            if pd is not None:
-                return pd.DataFrame(rows)
-            return rows
+            return pl.DataFrame(rows)
         except json.JSONDecodeError:
             raise MalloyCliError(f"Failed to parse malloy-cli JSON response: {raw_output}")

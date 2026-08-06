@@ -89,7 +89,7 @@ class MalloyResource(ConfigurableResource):
         query_name: Optional[str] = None,
         raw_code: Optional[str] = None,
     ) -> Any:
-        """Executes a Malloy query and returns a pandas DataFrame."""
+        """Executes a Malloy query and returns a polars DataFrame."""
         engine = self._resolve_engine()
         if engine == "cli":
             cli = self.get_cli_client()

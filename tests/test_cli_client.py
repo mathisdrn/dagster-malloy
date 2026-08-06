@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import polars as pl
 import pytest
 
 from dagster_malloy.cli_client import MalloyCliClient, MalloyCliError, _format_cli_error
@@ -59,7 +59,7 @@ def test_cli_run_success(mock_run):
     client = MalloyCliClient(cli_path="malloy-cli")
     df = client.run(file_path="model.malloy", query_name="q1")
 
-    assert isinstance(df, pd.DataFrame)
+    assert isinstance(df, pl.DataFrame)
     assert len(df) == 2
     assert list(df.columns) == ["id", "name"]
 
