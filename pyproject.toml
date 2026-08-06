@@ -18,9 +18,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mathisderenne/dagster-malloy"
-Repository = "https://github.com/mathisderenne/dagster-malloy"
-Issues = "https://github.com/mathisderenne/dagster-malloy/issues"
+Homepage = "https://github.com/mathisdrn/dagster-malloy"
+Repository = "https://github.com/mathisdrn/dagster-malloy"
+Issues = "https://github.com/mathisdrn/dagster-malloy/issues"
 
 [project.scripts]
 dagster-malloy = "dagster_malloy.cli:main"

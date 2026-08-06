@@ -2,7 +2,7 @@
 
 This directory contains a runnable example demonstrating `dagster-malloy` asset loading, model compilation, data quality checks, and dashboard assets.
 
-![Asset Lineage Graph](asset_lineage.svg)
+![Asset Lineage Graph](Global_asset_lineage.svg)
 
 ## Project Structure
 
@@ -13,7 +13,7 @@ examples/malloy_demo/
 │   └── sales.malloy       # Malloy model & query definitions
 ├── definitions.py         # Dagster definitions entrypoint
 ├── generate_data.py       # Script to generate sample datasets
-├── asset_lineage.svg      # Lineage diagram preview
+├── Global_asset_lineage.svg # Lineage diagram preview
 └── README.md
 ```
 
@@ -21,7 +21,7 @@ examples/malloy_demo/
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/mathisderenne/dagster-malloy.git
+   git clone https://github.com/mathisdrn/dagster-malloy.git
    cd dagster-malloy/examples/malloy_demo
    ```
 

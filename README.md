@@ -4,7 +4,7 @@
 
 > **Note**: This is an unofficial community package and is not affiliated with, endorsed by, or maintained by Dagster Labs or Google/Malloy.
 
-![Asset Lineage Graph](examples/malloy_demo/asset_lineage.svg)
+![Asset Lineage Graph](examples/malloy_demo/Global_asset_lineage.svg)
 
 It enables loading Malloy models as Dagster Software-Defined Assets, executing queries via `malloy-cli` or the `malloy` Python SDK, tracking lineage and metadata, and running data quality asset checks.
 
@@ -124,7 +124,7 @@ A self-contained runnable example project is available in [`examples/malloy_demo
 To clone and run the example locally:
 
 ```bash
-git clone https://github.com/mathisderenne/dagster-malloy.git
+git clone https://github.com/mathisdrn/dagster-malloy.git
 cd dagster-malloy/examples/malloy_demo
 python generate_data.py
 dagster dev -f definitions.py -p 3000
