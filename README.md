@@ -17,7 +17,7 @@
     }
     ```
 
-![Dagster Asset Lineage Graph](examples/malloy_demo/asset_lineage.svg)
+![Dagster Asset Lineage Graph](dagster_malloy_demo/asset_lineage.svg)
 
 ## Quickstart
 
@@ -129,13 +129,13 @@ A check **passes** when the query returns zero rows, or when the first row conta
 
 ## Example Project
 
-A self-contained runnable example project is available in [`examples/malloy_demo`](examples/malloy_demo) with instructions to run locally.
+A self-contained runnable example project is available in [`dagster_malloy_demo`](dagster_malloy_demo) with instructions to run locally.
 
 To clone and run the example locally:
 
 ```bash
 git clone https://github.com/mathisdrn/dagster-malloy.git
-cd dagster-malloy/examples/malloy_demo
+cd dagster-malloy/dagster_malloy_demo
 uv run generate_data.py
 uv run dg dev -f definitions.py
 ```

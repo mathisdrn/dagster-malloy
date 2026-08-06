@@ -28,14 +28,33 @@ This scaffolds a `malloy_demo/` directory, generates sample data, and starts the
 
 ## Running from source
 
+First clone the repository and install dependencies:
+
 ```bash
 git clone https://github.com/mathisdrn/dagster-malloy.git
 cd dagster-malloy
 uv sync
+```
+
+Then, you can run the demo project using either the demo CLI or `dg` directly:
+
+### Option A: Using the demo CLI (auto-scaffolding)
+
+```bash
 uv run dagster-malloy-demo
 ```
 
-## Options
+This scaffolds a `malloy_demo/` directory in your current path, generates sample data, and starts the Dagster webserver.
+
+### Option B: Running directly in the source directory
+
+```bash
+cd dagster_malloy_demo
+uv run generate_data.py
+uv run dg dev -f definitions.py
+```
+
+## Options (Option A)
 
 ```
 --port, -p   Port for Dagster webserver (default: 3000)

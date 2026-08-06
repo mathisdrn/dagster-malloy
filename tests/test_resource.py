@@ -17,9 +17,11 @@ def test_resource_initialization():
     assert resource.execution_mode == "cli"
     assert resource.cli_path == "npx malloy-cli"
 
+    import os
     cli_client = resource.get_cli_client()
     assert cli_client.cli_path == "npx malloy-cli"
-    assert cli_client.config_path == "config.json"
+    assert cli_client.config_path == os.path.abspath("config.json")
+    assert cli_client.project_dir == os.path.abspath(".")
 
 
 @patch("dagster_malloy.resource.MalloyCliClient")

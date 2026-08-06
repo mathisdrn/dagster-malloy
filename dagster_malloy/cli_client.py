@@ -53,8 +53,8 @@ class MalloyCliClient:
         project_dir: Optional[Union[str, Path]] = None,
     ):
         self.cli_path = cli_path or self._discover_cli()
-        self.config_path = str(config_path) if config_path else None
-        self.project_dir = str(project_dir) if project_dir else None
+        self.config_path = str(Path(config_path).resolve()) if config_path else None
+        self.project_dir = str(Path(project_dir).resolve()) if project_dir else None
 
     def _discover_cli(self) -> str:
         """Find malloy-cli or npx malloy-cli executable."""
@@ -78,6 +78,31 @@ class MalloyCliClient:
 
         return cmd
 
+    def _get_cwd(self, file_path: Optional[Union[str, Path]] = None) -> Optional[str]:
+        """Determine the working directory to use for executing malloy-cli."""
+        if self.project_dir:
+            return self.project_dir
+        if self.config_path:
+            # First, check if any parent of the config file contains project root indicators (.git, pyproject.toml, uv.lock)
+            start_dir = Path(self.config_path).resolve().parent
+            for parent in [start_dir] + list(start_dir.parents):
+                if any((parent / indicator).exists() for indicator in [".git", "pyproject.toml", "uv.lock"]):
+                    return str(parent)
+            return str(start_dir)
+
+        if file_path:
+            start_dir = Path(file_path).resolve().parent
+            # First look for a project root containing git/pyproject/uv.lock
+            for parent in [start_dir] + list(start_dir.parents):
+                if any((parent / indicator).exists() for indicator in [".git", "pyproject.toml", "uv.lock"]):
+                    return str(parent)
+            # If not found, look for directory with malloy-config.json
+            for parent in [start_dir] + list(start_dir.parents):
+                if (parent / "malloy-config.json").exists():
+                    return str(parent)
+            return str(start_dir)
+        return None
+
     def compile(
         self,
         file_path: Union[str, Path],
@@ -89,19 +114,22 @@ class MalloyCliClient:
         Returns:
             Tuple[str, str]: (compiled_sql, dialect)
         """
+        abs_file_path = str(Path(file_path).resolve())
         cmd = self._build_base_cmd("compile")
-        cmd.extend(["--json", str(file_path)])
+        cmd.extend(["--json", abs_file_path])
 
         if query_name:
             cmd.extend(["--name", query_name])
         elif query_index is not None:
             cmd.extend(["--index", str(query_index)])
 
+        cwd = self._get_cwd(file_path)
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             check=False,
+            cwd=cwd,
         )
 
         if proc.returncode != 0:
@@ -136,8 +164,9 @@ class MalloyCliClient:
         Returns:
             Union[pd.DataFrame, List[Dict[str, Any]]]: Query result dataset.
         """
+        abs_file_path = str(Path(file_path).resolve())
         cmd = self._build_base_cmd("run")
-        cmd.extend(["--json", str(file_path)])
+        cmd.extend(["--json", abs_file_path])
 
         if query_name:
             cmd.extend(["--name", query_name])
@@ -150,11 +179,13 @@ class MalloyCliClient:
         if row_limit is not None:
             cmd.extend(["--row-limit", str(row_limit)])
 
+        cwd = self._get_cwd(file_path)
         proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             check=False,
+            cwd=cwd,
         )
 
         if proc.returncode != 0:
