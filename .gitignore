@@ -1,0 +1,30 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Dagster home & temporary directories
+.tmp_dagster_home_*
+.dagster/*
+!.dagster/dagster.yaml
+*.duckdb
+
+# Demo generated data files (except .gitkeep if any)
+examples/malloy_demo/data/*.parquet

@@ -1,0 +1,160 @@
+"""Translator classes for mapping Malloy models/queries to Dagster AssetSpecs."""
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Set
+
+from dagster import (
+    AssetKey,
+    AssetSpec,
+    CodeReferencesMetadataValue,
+    LocalFileCodeReference,
+    MetadataValue,
+)
+from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo
+
+
+@dataclass
+class MalloyTranslatorData:
+    """Contextual data passed to MalloyTranslator for creating an AssetSpec."""
+
+    query_info: MalloyQueryInfo
+    parsed_model: MalloyParsedModel
+    file_path: Path
+    compiled_sql: Optional[str] = None
+    dialect: Optional[str] = None
+    table_dependencies: Set[str] = field(default_factory=set)
+
+
+class MalloyTranslator:
+    """Base translator class mapping Malloy queries/models to Dagster AssetSpecs.
+
+    Subclass this to customize AssetKeys, tags, group names, metadata, kinds, or dependencies.
+    """
+
+    def get_asset_key(self, data: MalloyTranslatorData) -> AssetKey:
+        """Computes the Dagster AssetKey for a Malloy query asset."""
+        stem = data.file_path.stem.replace(".", "_")
+        return AssetKey([stem, data.query_info.name])
+
+    def get_deps(self, data: MalloyTranslatorData) -> Iterable[AssetKey]:
+        """Computes upstream AssetKey dependencies for a Malloy query asset."""
+        deps = []
+        for table in data.table_dependencies:
+            clean_table = table.strip("'\"")
+            path_obj = Path(clean_table)
+            parts = list(path_obj.parts)
+            if parts:
+                parts[-1] = path_obj.stem
+                key = AssetKey(parts)
+                if key not in deps:
+                    deps.append(key)
+
+        if data.query_info.source_name:
+            source_key = AssetKey(data.query_info.source_name)
+            if source_key not in deps:
+                deps.append(source_key)
+
+        return deps
+
+    def get_description(self, data: MalloyTranslatorData) -> Optional[str]:
+        """Computes asset description from Malloy docstrings or comments."""
+        if data.query_info.description:
+            return data.query_info.description
+        return f"Malloy query '{data.query_info.name}' from {data.file_path.name}"
+
+    def get_group_name(self, data: MalloyTranslatorData) -> Optional[str]:
+        """Computes the Dagster group name for the asset."""
+        return "malloy"
+
+    def get_kinds(self, data: MalloyTranslatorData) -> Set[str]:
+        """Computes the kind badges (e.g. 'malloy', 'duckdb', 'bigquery', 'snowflake') for the asset UI."""
+        kinds = {"malloy"}
+
+        dialect = data.dialect
+        if not dialect and data.query_info.source_name:
+            source_info = data.parsed_model.sources.get(data.query_info.source_name)
+            if source_info and source_info.connection:
+                dialect = source_info.connection.lower()
+
+        if dialect:
+            clean_dialect = dialect.lower().strip()
+            if "duckdb" in clean_dialect:
+                kinds.add("duckdb")
+            elif "bigquery" in clean_dialect or "bq" in clean_dialect:
+                kinds.add("bigquery")
+            elif "snowflake" in clean_dialect:
+                kinds.add("snowflake")
+            elif "postgres" in clean_dialect:
+                kinds.add("postgres")
+            elif "trino" in clean_dialect:
+                kinds.add("trino")
+            else:
+                kinds.add(clean_dialect)
+
+        return kinds
+
+    def get_tags(self, data: MalloyTranslatorData) -> Mapping[str, str]:
+        """Computes tags for the asset."""
+        tags = {
+            "dagster-malloy/file": data.file_path.name,
+            "dagster-malloy/query": data.query_info.name,
+        }
+        if data.query_info.is_notebook_cell:
+            tags["dagster-malloy/is_notebook"] = "true"
+            if data.query_info.cell_index is not None:
+                tags["dagster-malloy/cell_index"] = str(data.query_info.cell_index)
+
+        for tag in data.query_info.tags:
+            tags[f"malloy/{tag}"] = "true"
+
+        return tags
+
+    def get_owners(self, data: MalloyTranslatorData) -> Optional[Sequence[str]]:
+        """Computes owners for the asset."""
+        return None
+
+    def get_metadata(self, data: MalloyTranslatorData) -> Mapping[str, Any]:
+        """Computes Dagster metadata for the asset including Malloy source code and code references."""
+        metadata: Dict[str, Any] = {
+            "file_path": str(data.file_path),
+            "query_name": data.query_info.name,
+        }
+
+        if data.query_info.source_name:
+            metadata["source_name"] = data.query_info.source_name
+        if data.query_info.view_name:
+            metadata["view_name"] = data.query_info.view_name
+        if data.compiled_sql:
+            metadata["compiled_sql"] = data.compiled_sql
+        if data.dialect:
+            metadata["dialect"] = data.dialect
+
+        if data.query_info.raw_code:
+            metadata["malloy_source_code"] = MetadataValue.md(
+                f"```malloy\n{data.query_info.raw_code}\n```"
+            )
+
+        metadata["dagster/code_references"] = CodeReferencesMetadataValue(
+            code_references=[
+                LocalFileCodeReference(
+                    file_path=str(data.file_path),
+                    line_number=data.query_info.line_number,
+                )
+            ]
+        )
+
+        return metadata
+
+    def get_asset_spec(self, data: MalloyTranslatorData) -> AssetSpec:
+        """Constructs the complete Dagster AssetSpec for a Malloy query."""
+        return AssetSpec(
+            key=self.get_asset_key(data),
+            deps=self.get_deps(data),
+            description=self.get_description(data),
+            group_name=self.get_group_name(data),
+            kinds=self.get_kinds(data),
+            tags=self.get_tags(data),
+            owners=self.get_owners(data),
+            metadata=self.get_metadata(data),
+        )

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dagster-malloy"
+version = "0.1.0"
+description = "Unofficial Dagster integration for Malloy models and notebooks"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [
+    { name = "Mathis Derenne", email = "mathis.derenne@gmail.com" }
+]
+dependencies = [
+    "dagster>=1.6.0",
+    "pydantic>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mathisderenne/dagster-malloy"
+Repository = "https://github.com/mathisderenne/dagster-malloy"
+Issues = "https://github.com/mathisderenne/dagster-malloy/issues"
+
+[project.scripts]
+dagster-malloy = "dagster_malloy.cli:main"
+dagster-malloy-demo = "dagster_malloy.cli:run_demo"
+
+[project.optional-dependencies]
+pandas = [
+    "pandas>=1.5.0",
+]
+dev = [
+    "dagster-dg-cli>=1.12.0",
+    "dagster-webserver>=1.6.0",
+]
+python-backend = [
+    "malloy>=2024.1000",
+]
+test = [
+    "pytest>=7.0.0",
+    "duckdb>=0.9.0",
+    "pandas>=1.5.0",
+    "malloy>=2024.1000",
+]
+
+[tool.dg]
+directory_type = "project"
+
+[tool.dg.project]
+root_module = "dagster_malloy"
+
+[tool.hatch.build.targets.wheel]
+packages = ["dagster_malloy"]
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
