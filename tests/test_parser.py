@@ -130,10 +130,13 @@ def test_parse_malloy_file(sample_malloy_file: Path):
     assert q_info.source_name == "users"
     assert q_info.description == "Description for user_summary query"
     assert "tag_analytics" in q_info.tags
+    assert "group_by: user_name" in q_info.raw_code
+    assert "aggregate: user_count is count()" in q_info.raw_code
 
     assert "check_valid_users" in parsed.queries
     check_info = parsed.queries["check_valid_users"]
     assert check_info.is_check is True
+    assert "where: id is null" in check_info.raw_code
 
 
 def test_parse_multiple_sources_and_queries(multi_model_malloy_file: Path):

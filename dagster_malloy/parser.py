@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 
 @dataclass
@@ -94,6 +94,25 @@ class MalloyParser:
     }
 
     @classmethod
+    def _extract_multiline_block(cls, lines: List[str], start_idx: int) -> Tuple[str, int]:
+        """Extracts a single-line or multi-line Malloy declaration, balancing braces if needed."""
+        block_lines = [lines[start_idx]]
+        first_line = lines[start_idx]
+
+        open_braces = first_line.count("{")
+        close_braces = first_line.count("}")
+        brace_depth = open_braces - close_braces
+
+        idx = start_idx + 1
+        while brace_depth > 0 and idx < len(lines):
+            next_line = lines[idx]
+            block_lines.append(next_line)
+            brace_depth += next_line.count("{") - next_line.count("}")
+            idx += 1
+
+        return "\n".join(block_lines).rstrip(), len(block_lines)
+
+    @classmethod
     def parse_file(cls, file_path: Union[str, Path]) -> MalloyParsedModel:
         """Parse a .malloy or .malloynb file into a MalloyParsedModel."""
         path = Path(file_path).resolve()
@@ -123,8 +142,11 @@ class MalloyParser:
         for match in cls.IMPORT_PATTERN.finditer(code):
             parsed.imports.append(match.group(1))
 
-        # Extract sources and table dependencies
-        for line_idx, line in enumerate(lines, start=1):
+        # Extract sources and queries with multiline brace matching
+        i = 0
+        while i < len(lines):
+            line_idx = i + 1
+            line = lines[i]
             line_str = line.strip()
 
             # Comment / annotation parsing
@@ -141,6 +163,7 @@ class MalloyParser:
                     comment_text = line_str.lstrip("#").strip()
                     if comment_text:
                         current_description.append(comment_text)
+                i += 1
                 continue
 
             # Source definition: source: foo is duckdb.table('file.parquet')
@@ -149,12 +172,14 @@ class MalloyParser:
                 source_name = source_match.group(1)
                 conn = source_match.group(2)
                 table_or_sql = source_match.group(4)
+                raw_block, consumed_count = cls._extract_multiline_block(lines, i)
+
                 parsed.sources[source_name] = MalloySourceInfo(
                     name=source_name,
                     connection=conn,
                     table_or_sql=table_or_sql,
                     line_number=line_idx,
-                    raw_code=line_str,
+                    raw_code=raw_block,
                 )
                 if table_or_sql:
                     parsed.table_dependencies.add(table_or_sql)
@@ -162,21 +187,25 @@ class MalloyParser:
                 current_tags = []
                 in_check_mode = False
                 in_dashboard_mode = False
+                i += consumed_count
                 continue
 
             # Simple source declaration: source: foo is bar
             source_simple = cls.SOURCE_SIMPLE_PATTERN.search(line_str)
             if source_simple and source_simple.group(1) not in parsed.sources:
                 source_name = source_simple.group(1)
+                raw_block, consumed_count = cls._extract_multiline_block(lines, i)
+
                 parsed.sources[source_name] = MalloySourceInfo(
                     name=source_name,
                     line_number=line_idx,
-                    raw_code=line_str,
+                    raw_code=raw_block,
                 )
                 current_description = []
                 current_tags = []
                 in_check_mode = False
                 in_dashboard_mode = False
+                i += consumed_count
                 continue
 
             # Named query: query: my_query is source -> view
@@ -185,6 +214,7 @@ class MalloyParser:
                 q_name = query_match.group(1)
                 s_name = query_match.group(2)
                 v_name = query_match.group(3) if query_match.lastindex and query_match.lastindex >= 3 else None
+                raw_block, consumed_count = cls._extract_multiline_block(lines, i)
 
                 is_check = (
                     in_check_mode
@@ -206,7 +236,7 @@ class MalloyParser:
                     view_name=v_name.strip() if v_name else None,
                     description=desc,
                     line_number=line_idx,
-                    raw_code=line_str,
+                    raw_code=raw_block,
                     is_check=is_check,
                     is_dashboard=is_dashboard,
                     tags=list(current_tags),
@@ -216,7 +246,10 @@ class MalloyParser:
                 current_tags = []
                 in_check_mode = False
                 in_dashboard_mode = False
+                i += consumed_count
                 continue
+
+            i += 1
 
         return parsed
 
