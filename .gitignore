@@ -28,3 +28,4 @@ htmlcov/
 
 # Demo generated data files
 **/data/*.parquet
+.DS_Store
