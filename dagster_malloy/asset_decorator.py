@@ -88,6 +88,7 @@ def load_malloy_assets(
     name: Optional[str] = None,
     create_dashboards: bool = True,
     include_sources: bool = True,
+    can_subset: bool = True,
 ) -> AssetsDefinition:
     """Loads Malloy queries and models from a file or directory as Dagster Software-Defined Assets."""
     path_obj = Path(path).resolve()
@@ -185,6 +186,7 @@ def load_malloy_assets(
     @multi_asset(
         specs=specs,
         name=multi_asset_name,
+        can_subset=can_subset,
         required_resource_keys={"malloy"},
     )
     def _malloy_multi_asset(context: AssetExecutionContext):
@@ -192,10 +194,21 @@ def load_malloy_assets(
         if malloy_res is None:
             malloy_res = MalloyResource()
 
-        selected_keys = sorted(
-            context.selected_asset_keys,
-            key=lambda k: _type_order(asset_query_map.get(k, {})),
-        )
+        from graphlib import TopologicalSorter
+
+        specs_by_key = {spec.key: spec for spec in specs}
+        selected_set = set(context.selected_asset_keys)
+        ts = TopologicalSorter()
+
+        for k in selected_set:
+            spec = specs_by_key.get(k)
+            if spec:
+                dep_keys = {dep.asset_key for dep in spec.deps} & selected_set
+                ts.add(k, *dep_keys)
+            else:
+                ts.add(k)
+
+        selected_keys = list(ts.static_order())
 
         for target_key in selected_keys:
             if target_key not in asset_query_map:
@@ -284,6 +297,7 @@ def malloy_assets(
     group_name: Optional[str] = None,
     create_dashboards: bool = True,
     include_sources: bool = True,
+    can_subset: bool = True,
 ) -> Callable:
     """Decorator version of load_malloy_assets."""
     def decorator(fn: Callable) -> AssetsDefinition:
@@ -292,6 +306,7 @@ def malloy_assets(
             translator=translator,
             create_dashboards=create_dashboards,
             include_sources=include_sources,
+            can_subset=can_subset,
         )
 
     return decorator

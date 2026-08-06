@@ -14,6 +14,7 @@ class MalloySourceInfo:
     name: str
     connection: Optional[str] = None
     table_or_sql: Optional[str] = None
+    base_source_name: Optional[str] = None
     line_number: int = 1
     raw_code: str = ""
     joined_sources: Set[str] = field(default_factory=set)
@@ -202,12 +203,25 @@ class MalloyParser:
             source_simple = cls.SOURCE_SIMPLE_PATTERN.search(line_str)
             if source_simple and source_simple.group(1) not in parsed.sources:
                 source_name = source_simple.group(1)
+                base_source_name = source_simple.group(2)
                 raw_block, consumed_count = cls._extract_multiline_block(lines, i)
+                joined = set(cls.JOIN_PATTERN.findall(raw_block))
+
+                conn = None
+                table_or_sql = None
+                if base_source_name in parsed.sources:
+                    parent_info = parsed.sources[base_source_name]
+                    conn = parent_info.connection
+                    table_or_sql = parent_info.table_or_sql
 
                 parsed.sources[source_name] = MalloySourceInfo(
                     name=source_name,
+                    connection=conn,
+                    table_or_sql=table_or_sql,
+                    base_source_name=base_source_name,
                     line_number=line_idx,
                     raw_code=raw_block,
+                    joined_sources=joined,
                 )
                 current_description = []
                 current_tags = []

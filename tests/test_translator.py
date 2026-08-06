@@ -4,7 +4,7 @@ from pathlib import Path
 
 from dagster import AssetKey
 
-from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo
+from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo, MalloySourceInfo
 from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData
 
 
@@ -77,3 +77,21 @@ def test_custom_translator():
 
     assert spec.key == AssetKey(["custom_namespace", "q1"])
     assert spec.group_name == "custom_malloy_group"
+
+
+def test_source_extension_lineage():
+    file_path = Path("analytics/comments.malloy")
+    parsed = MalloyParsedModel(
+        file_path=file_path,
+        sources={
+            "comments_base": MalloySourceInfo(name="comments_base", table_or_sql="comments.parquet"),
+            "comments": MalloySourceInfo(name="comments", base_source_name="comments_base"),
+        },
+    )
+
+    translator = MalloyTranslator()
+    spec_base = translator.get_source_asset_spec("comments_base", file_path, parsed)
+    spec_ext = translator.get_source_asset_spec("comments", file_path, parsed)
+
+    assert [dep.asset_key for dep in spec_base.deps] == [AssetKey("comments")]
+    assert [dep.asset_key for dep in spec_ext.deps] == [AssetKey(["comments", "comments_base"])]

@@ -27,4 +27,4 @@ htmlcov/
 *.duckdb
 
 # Demo generated data files
-malloy_demo/data/*.parquet
+**/data/*.parquet

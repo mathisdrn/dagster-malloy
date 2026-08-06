@@ -90,3 +90,72 @@ def test_materialize_malloy_assets(mock_cli_cls, temp_malloy_dir: Path):
     assert metadata["dagster/row_count"].value == 2
     assert metadata["dialect"].value == "duckdb"
     assert "SELECT region" in metadata["compiled_sql"].value
+
+
+def test_materialize_extended_sources_topological_order(tmp_path: Path):
+    malloy_file = tmp_path / "comments.malloy"
+    malloy_file.write_text(
+        """
+source: comments_base is duckdb.table('comments.parquet') extend {
+  primary_key: id
+}
+
+source: comments is comments_base extend {
+  dimension: body_len is length(body)
+}
+
+query: top_comments is comments -> {
+  group_by: body_len
+  aggregate: cnt is count()
+}
+""",
+        encoding="utf-8",
+    )
+    assets_def = load_malloy_assets(tmp_path, include_sources=True)
+
+    with patch("dagster_malloy.resource.MalloyCliClient") as mock_cli_cls:
+        mock_cli = MagicMock()
+        mock_cli.compile.return_value = ("SELECT 1", "duckdb")
+        mock_cli.run.return_value = pd.DataFrame([{"body_len": 10, "cnt": 1}])
+        mock_cli_cls.return_value = mock_cli
+
+        resource = MalloyResource(execution_mode="cli")
+        result = materialize_to_memory(
+            [assets_def],
+            resources={"malloy": resource},
+        )
+
+        assert result.success
+        mat_events = result.get_asset_materialization_events()
+        assert len(mat_events) == 3
+
+        materialized_keys = [event.asset_key for event in mat_events]
+        base_idx = materialized_keys.index(AssetKey(["comments", "comments_base"]))
+        ext_idx = materialized_keys.index(AssetKey(["comments", "comments"]))
+        query_idx = materialized_keys.index(AssetKey(["comments", "top_comments"]))
+
+        assert base_idx < ext_idx < query_idx
+
+
+@patch("dagster_malloy.resource.MalloyCliClient")
+def test_subset_materialization(mock_cli_cls, temp_malloy_dir: Path):
+    mock_cli = MagicMock()
+    mock_cli.compile.return_value = ("SELECT 1", "duckdb")
+    mock_cli.run.return_value = pd.DataFrame([{"region": "US", "total_revenue": 1000}])
+    mock_cli_cls.return_value = mock_cli
+
+    assets_def = load_malloy_assets(temp_malloy_dir, include_sources=True, can_subset=True)
+    resource = MalloyResource(execution_mode="cli")
+
+    selected_key = AssetKey(["sales", "revenue_by_region"])
+    result = materialize_to_memory(
+        [assets_def],
+        selection=[selected_key],
+        resources={"malloy": resource},
+    )
+
+    assert result.success
+    mat_events = result.get_asset_materialization_events()
+    assert len(mat_events) == 1
+    assert mat_events[0].asset_key == selected_key
+

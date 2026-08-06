@@ -182,3 +182,32 @@ def test_parse_notebook(sample_notebook_file: Path):
     q_info = parsed.queries["order_summary"]
     assert q_info.is_notebook_cell is True
     assert q_info.cell_index == 0
+
+
+def test_parse_source_extension(tmp_path: Path):
+    file_path = tmp_path / "extended.malloy"
+    file_path.write_text(
+        """
+source: comments_base is duckdb.table('comments.parquet') extend {
+  primary_key: id
+}
+
+source: comments is comments_base extend {
+  dimension: body_len is length(body)
+}
+""",
+        encoding="utf-8",
+    )
+    parsed = MalloyParser.parse_file(file_path)
+
+    assert "comments_base" in parsed.sources
+    assert "comments" in parsed.sources
+
+    base_src = parsed.sources["comments_base"]
+    assert base_src.base_source_name is None
+    assert base_src.table_or_sql == "comments.parquet"
+
+    ext_src = parsed.sources["comments"]
+    assert ext_src.base_source_name == "comments_base"
+    assert ext_src.connection == "duckdb"
+    assert ext_src.table_or_sql == "comments.parquet"

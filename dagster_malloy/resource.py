@@ -61,7 +61,7 @@ class MalloyResource(ConfigurableResource):
         return MalloyCliClient(
             cli_path=self.cli_path,
             config_path=self.config_path,
-            project_dir=self.project_dir,
+            project_dir=self.project_dir or self.home_dir,
         )
 
     def get_python_client(self) -> MalloyPythonClient:

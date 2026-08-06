@@ -83,18 +83,18 @@ class MalloyCliClient:
         if self.project_dir:
             return self.project_dir
         if self.config_path:
-            # First, check if any parent of the config file contains project root indicators (.git, pyproject.toml, uv.lock)
+            # First, check if any parent of the config file contains project root indicators (.git, pyproject.toml, uv.lock, definitions.py)
             start_dir = Path(self.config_path).resolve().parent
             for parent in [start_dir] + list(start_dir.parents):
-                if any((parent / indicator).exists() for indicator in [".git", "pyproject.toml", "uv.lock"]):
+                if any((parent / indicator).exists() for indicator in [".git", "pyproject.toml", "uv.lock", "definitions.py", "dagster.yaml"]):
                     return str(parent)
             return str(start_dir)
 
         if file_path:
             start_dir = Path(file_path).resolve().parent
-            # First look for a project root containing git/pyproject/uv.lock
+            # First look for a project root containing git/pyproject/uv.lock/definitions.py
             for parent in [start_dir] + list(start_dir.parents):
-                if any((parent / indicator).exists() for indicator in [".git", "pyproject.toml", "uv.lock"]):
+                if any((parent / indicator).exists() for indicator in [".git", "pyproject.toml", "uv.lock", "definitions.py", "dagster.yaml"]):
                     return str(parent)
             # If not found, look for directory with malloy-config.json
             for parent in [start_dir] + list(start_dir.parents):

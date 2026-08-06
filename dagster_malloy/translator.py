@@ -186,13 +186,20 @@ class MalloyTranslator:
         """Constructs an AssetSpec for a Malloy source semantic model."""
         source_info = parsed_model.sources.get(source_name)
         deps = []
-        if source_info and source_info.table_or_sql:
-            table = source_info.table_or_sql.strip("'\"")
-            path_obj = Path(table)
-            parts = list(path_obj.parts)
-            if parts:
-                parts[-1] = path_obj.stem
-                deps.append(AssetKey(parts))
+        if source_info:
+            if source_info.base_source_name and source_info.base_source_name in parsed_model.sources:
+                base_key = self.get_source_asset_key(source_info.base_source_name, file_path)
+                if base_key not in deps:
+                    deps.append(base_key)
+            elif source_info.table_or_sql:
+                table = source_info.table_or_sql.strip("'\"")
+                path_obj = Path(table)
+                parts = list(path_obj.parts)
+                if parts:
+                    parts[-1] = path_obj.stem
+                    key = AssetKey(parts)
+                    if key not in deps:
+                        deps.append(key)
 
         kinds = {"semantic_model", "malloy"}
         if source_info and source_info.connection:
