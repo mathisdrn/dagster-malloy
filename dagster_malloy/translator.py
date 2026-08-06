@@ -90,7 +90,7 @@ class MalloyTranslator:
         if data.query_info.is_dashboard:
             kinds.add("dashboard")
         else:
-            kinds.add("🔍  query")
+            kinds.add("⚙️\u200b Query")
 
         dialect = data.dialect
         if not dialect and data.query_info.source_name:
