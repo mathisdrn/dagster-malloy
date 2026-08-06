@@ -1,14 +1,14 @@
 """Multi-asset factory decorators for registering Malloy models in Dagster."""
 
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from dagster import (
     AssetExecutionContext,
     AssetKey,
-    AssetSpec,
     AssetsDefinition,
+    AssetSpec,
     MaterializeResult,
     MetadataValue,
     TableColumn,
@@ -68,7 +68,7 @@ def _dataset_to_markdown_preview(data: Any, max_rows: int = 10) -> str:
                 if isinstance(r, dict):
                     row_str = "| " + " | ".join(str(r.get(h, "")) for h in headers) + " |"
                     body_lines.append(row_str)
-            return "\n".join([header_line, sep_line] + body_lines)
+            return "\n".join([header_line, sep_line, *body_lines])
     return "*No preview available.*"
 
 
@@ -77,7 +77,7 @@ def _get_row_count(data: Any) -> int:
     if hasattr(data, "__len__"):
         try:
             return len(data)
-        except Exception:
+        except Exception:  # noqa: BLE001 - len() may raise on exotic types; fallback to 0
             return 0
     return 0
 
@@ -123,14 +123,18 @@ def load_malloy_assets(
                     "source_info": s_info,
                 }
 
-        # 2. Register Query Asset Specs
+        # 2. Register Query Asset Specs (skipping quality checks)
         for q_name, q_info in parsed_model.queries.items():
+            if q_info.is_check or "check" in q_info.tags or q_name.startswith("check_"):
+                continue  # Data quality check queries are registered as AssetCheck definitions, not asset nodes
+
             trans_data = MalloyTranslatorData(
                 query_info=q_info,
                 parsed_model=parsed_model,
                 file_path=file,
                 dialect=q_info.source_name and parsed_model.sources.get(q_info.source_name, {}).connection if parsed_model.sources.get(q_info.source_name) else None,
                 table_dependencies=parsed_model.table_dependencies,
+                include_sources=include_sources,
             )
             query_spec = translator.get_asset_spec(trans_data)
             specs.append(query_spec)
@@ -145,12 +149,18 @@ def load_malloy_assets(
             # Create downstream dashboard asset node if requested
             if create_dashboards and (q_info.is_dashboard or "dashboard" in q_info.tags):
                 dash_key = AssetKey([query_spec.key.path[0], f"{q_name}_dashboard"])
+                dash_kinds = {"dashboard"}
+                if query_spec.kinds:
+                    for k in query_spec.kinds:
+                        if k not in {"query", "sql", "malloy", "semantic_model", "🔍 query", "🔍  query"}:
+                            dash_kinds.add(k)
+
                 dash_spec = AssetSpec(
                     key=dash_key,
                     deps=[query_spec.key],
                     description=f"Interactive Dashboard asset for Malloy query '{q_name}'",
                     group_name=query_spec.group_name or "malloy",
-                    kinds={"malloy", "dashboard"},
+                    kinds=dash_kinds,
                     tags={"dagster-malloy/dashboard": "true"},
                 )
                 specs.append(dash_spec)

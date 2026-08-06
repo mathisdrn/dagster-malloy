@@ -1,10 +1,10 @@
 """AST and regex parser for Malloy (.malloy) models and (.malloynb) notebooks."""
 
-from dataclasses import dataclass, field
 import json
-from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import ClassVar, Dict, List, Optional, Set, Tuple, Union
 
 
 @dataclass
@@ -16,6 +16,7 @@ class MalloySourceInfo:
     table_or_sql: Optional[str] = None
     line_number: int = 1
     raw_code: str = ""
+    joined_sources: Set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -81,7 +82,11 @@ class MalloyParser:
         r"(?:check_|test_|assert_)([a-zA-Z0-9_]+)",
         re.IGNORECASE,
     )
-    DASHBOARD_TAGS = {
+    JOIN_PATTERN = re.compile(
+        r"join_(?:one|many|cross)\s*:\s*([a-zA-Z0-9_]+)",
+        re.IGNORECASE,
+    )
+    DASHBOARD_TAGS: ClassVar[set[str]] = {
         "dashboard",
         "bar_chart",
         "line_chart",
@@ -153,7 +158,7 @@ class MalloyParser:
             if line_str.startswith("#"):
                 ann_match = cls.ANNOTATION_PATTERN.match(line_str)
                 if ann_match:
-                    tag_name, tag_val = ann_match.group(1).lower(), ann_match.group(2)
+                    tag_name = ann_match.group(1).lower()
                     current_tags.append(tag_name)
                     if tag_name in ["check", "test", "assert"]:
                         in_check_mode = True
@@ -174,6 +179,7 @@ class MalloyParser:
                 conn = conn_raw.split(".")[0] if "." in conn_raw else conn_raw
                 table_or_sql = source_match.group(3)
                 raw_block, consumed_count = cls._extract_multiline_block(lines, i)
+                joined = set(cls.JOIN_PATTERN.findall(raw_block))
 
                 parsed.sources[source_name] = MalloySourceInfo(
                     name=source_name,
@@ -181,6 +187,7 @@ class MalloyParser:
                     table_or_sql=table_or_sql,
                     line_number=line_idx,
                     raw_code=raw_block,
+                    joined_sources=joined,
                 )
                 if table_or_sql:
                     parsed.table_dependencies.add(table_or_sql)

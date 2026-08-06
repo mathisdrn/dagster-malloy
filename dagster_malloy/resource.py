@@ -1,8 +1,9 @@
 """Malloy Resource for managing connections, runtime options, and query execution in Dagster."""
 
-from pathlib import Path
 import shutil
-from typing import Any, Dict, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Any, Optional, Tuple, Union
+
 from dagster import ConfigurableResource
 from pydantic import Field
 

@@ -1,9 +1,10 @@
 """Tests for MalloyCliClient."""
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import pandas as pd
 import pytest
+
 from dagster_malloy.cli_client import MalloyCliClient, MalloyCliError, _format_cli_error
 
 

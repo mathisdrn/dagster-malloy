@@ -1,7 +1,9 @@
 """Generate sample DuckDB Parquet datasets for the Malloy demo project."""
 
 from pathlib import Path
+
 import duckdb
+
 
 def main():
     data_dir = Path(__file__).parent / "data"
@@ -37,6 +39,7 @@ def main():
     """).write_parquet(str(data_dir / "orders.parquet"))
 
     print(f"Generated sample datasets in {data_dir}")
+
 
 if __name__ == "__main__":
     main()

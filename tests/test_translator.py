@@ -1,7 +1,9 @@
 """Tests for MalloyTranslator."""
 
 from pathlib import Path
+
 from dagster import AssetKey
+
 from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo
 from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData
 
@@ -27,7 +29,7 @@ def test_default_translator_spec():
     translator = MalloyTranslator()
     spec = translator.get_asset_spec(trans_data)
 
-    assert spec.kinds == {"malloy", "duckdb"}
+    assert spec.kinds == {"🔍  query", "malloy", "duckdb"}
     assert spec.key == AssetKey(["sales", "monthly_revenue"])
     assert spec.description == "Monthly revenue query"
     assert spec.group_name == "malloy"
@@ -36,9 +38,20 @@ def test_default_translator_spec():
     assert spec.metadata["compiled_sql"] == "SELECT sum(amount) FROM orders"
     assert spec.metadata["dialect"] == "duckdb"
 
-    # Upstream dependencies should include orders
+    # Upstream dependencies should include sales/orders when include_sources=True
     dep_keys = [dep.asset_key for dep in spec.deps]
-    assert AssetKey("orders") in dep_keys
+    assert AssetKey(["sales", "orders"]) in dep_keys
+
+    trans_data_no_src = MalloyTranslatorData(
+        query_info=q_info,
+        parsed_model=parsed,
+        file_path=file_path,
+        table_dependencies={"orders.parquet"},
+        include_sources=False,
+    )
+    spec_no_src = translator.get_asset_spec(trans_data_no_src)
+    dep_keys_no_src = [dep.asset_key for dep in spec_no_src.deps]
+    assert AssetKey("orders") in dep_keys_no_src
 
 
 class CustomTranslator(MalloyTranslator):

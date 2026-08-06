@@ -1,11 +1,11 @@
 """CLI Execution Client wrapping malloy-cli for compilation and query execution."""
 
 import json
-from pathlib import Path
 import re
 import shutil
 import subprocess
-from typing import Any, Dict, List, Optional, Tuple, Union
+from pathlib import Path
+from typing import Any, List, Optional, Tuple, Union
 
 try:
     import pandas as pd
@@ -15,7 +15,6 @@ except ImportError:
 
 class MalloyCliError(Exception):
     """Raised when malloy-cli execution fails."""
-    pass
 
 
 def _format_cli_error(raw_output: str) -> str:
@@ -38,7 +37,7 @@ def _format_cli_error(raw_output: str) -> str:
             data = json.loads(json_match.group(0))
             if isinstance(data, dict) and "error" in data:
                 return f"Malloy Compiler Error:\n{data['error'].strip()}"
-        except Exception:
+        except Exception:  # noqa: BLE001 - best-effort JSON parse of error message
             pass
 
     return raw_str
@@ -100,8 +99,7 @@ class MalloyCliClient:
 
         proc = subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             check=False,
         )
@@ -154,8 +152,7 @@ class MalloyCliClient:
 
         proc = subprocess.run(
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             check=False,
         )

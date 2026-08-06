@@ -2,12 +2,12 @@
 
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import pandas as pd
 import pytest
-from dagster import AssetKey, materialize_to_memory
+from dagster import AssetKey
 
 from dagster_malloy.asset_checks import build_malloy_asset_checks
-from dagster_malloy.resource import MalloyResource
 
 
 @pytest.fixture
@@ -43,5 +43,5 @@ def test_malloy_asset_check_execution_passing(mock_cli_cls, temp_check_file: Pat
 
     assert len(check_defs) == 1
     check_fn = check_defs[0]
-    check_key = list(check_fn.check_keys)[0]
+    check_key = next(iter(check_fn.check_keys))
     assert check_key.name == "check_no_null_users"

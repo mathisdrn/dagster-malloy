@@ -1,13 +1,10 @@
 # Malloy E-Commerce Analytics Model
-
 source: customers is duckdb.table('data/customers.parquet') extend {
   primary_key: id
-  dimension: full_name is name
 }
 
 source: products is duckdb.table('data/products.parquet') extend {
   primary_key: id
-  dimension: item_title is title
 }
 
 source: orders is duckdb.table('data/orders.parquet') extend {
@@ -15,53 +12,28 @@ source: orders is duckdb.table('data/orders.parquet') extend {
   join_one: customers on customer_id = customers.id
   join_one: products on product_id = products.id
 
-  dimension: gross_revenue is price * quantity
-  dimension: estimated_profit is gross_revenue - (products.base_cost * quantity)
-
   view: customer_performance is {
-    group_by: 
-      customers.name
-      customers.segment
-      customers.state
-    aggregate: 
+    group_by: customers.name, customers.segment, customers.state
+    aggregate:
       total_orders is count()
-      total_spent is sum(gross_revenue)
-      total_profit is sum(estimated_profit)
-  }
-
-  view: category_breakdown is {
-    group_by: 
-      products.category
-    aggregate: 
-      revenue is sum(gross_revenue)
-      order_count is count()
+      total_spent is sum(price * quantity)
   }
 }
 
 # Customer Analytics Data Asset
 query: customer_analytics is orders -> customer_performance
 
-# Product Category Performance Data Asset
-query: category_analytics is orders -> category_breakdown
-
 # Executive Sales Dashboard Asset
 # @dashboard
 # @bar_chart
 query: executive_sales_dashboard is orders -> {
   group_by: products.category, customers.segment
-  aggregate: gross_revenue is sum(gross_revenue)
+  aggregate: gross_revenue is sum(price * quantity)
 }
 
 # Data Quality Check: Verify Customer IDs are non-null
 # @check
 query: check_valid_customer_ids is orders -> {
   where: customer_id is null
-  aggregate: invalid_count is count()
-}
-
-# Data Quality Check: Verify Product IDs are non-null
-# @check
-query: check_valid_product_ids is orders -> {
-  where: product_id is null
   aggregate: invalid_count is count()
 }

@@ -1,6 +1,7 @@
 """Unit tests for MalloyParser."""
 
 from pathlib import Path
+
 import pytest
 
 from dagster_malloy.parser import MalloyParser

@@ -1,8 +1,9 @@
 """Translator classes for mapping Malloy models/queries to Dagster AssetSpecs."""
 
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Set
+from typing import Any, Dict, Optional, Set
 
 from dagster import (
     AssetKey,
@@ -11,7 +12,8 @@ from dagster import (
     LocalFileCodeReference,
     MetadataValue,
 )
-from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo, MalloySourceInfo
+
+from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo
 
 
 @dataclass
@@ -24,6 +26,7 @@ class MalloyTranslatorData:
     compiled_sql: Optional[str] = None
     dialect: Optional[str] = None
     table_dependencies: Set[str] = field(default_factory=set)
+    include_sources: bool = True
 
 
 class MalloyTranslator:
@@ -45,20 +48,28 @@ class MalloyTranslator:
     def get_deps(self, data: MalloyTranslatorData) -> Iterable[AssetKey]:
         """Computes upstream AssetKey dependencies for a Malloy query asset."""
         deps = []
-        for table in data.table_dependencies:
-            clean_table = table.strip("'\"")
-            path_obj = Path(clean_table)
-            parts = list(path_obj.parts)
-            if parts:
-                parts[-1] = path_obj.stem
-                key = AssetKey(parts)
-                if key not in deps:
-                    deps.append(key)
 
-        if data.query_info.source_name:
+        if data.include_sources and data.query_info.source_name:
             source_key = self.get_source_asset_key(data.query_info.source_name, data.file_path)
-            if source_key not in deps:
-                deps.append(source_key)
+            deps.append(source_key)
+
+            primary_source = data.parsed_model.sources.get(data.query_info.source_name)
+            if primary_source:
+                for joined_name in sorted(primary_source.joined_sources):
+                    if joined_name in data.parsed_model.sources:
+                        j_key = self.get_source_asset_key(joined_name, data.file_path)
+                        if j_key not in deps:
+                            deps.append(j_key)
+        else:
+            for table in data.table_dependencies:
+                clean_table = table.strip("'\"")
+                path_obj = Path(clean_table)
+                parts = list(path_obj.parts)
+                if parts:
+                    parts[-1] = path_obj.stem
+                    key = AssetKey(parts)
+                    if key not in deps:
+                        deps.append(key)
 
         return deps
 
@@ -73,8 +84,13 @@ class MalloyTranslator:
         return "malloy"
 
     def get_kinds(self, data: MalloyTranslatorData) -> Set[str]:
-        """Computes the kind badges (e.g. 'malloy', 'duckdb', 'bigquery', 'snowflake') for the asset UI."""
+        """Computes the kind badges (e.g. 'malloy', 'duckdb', 'dashboard') for the asset UI."""
         kinds = {"malloy"}
+
+        if data.query_info.is_dashboard:
+            kinds.add("dashboard")
+        else:
+            kinds.add("🔍  query")
 
         dialect = data.dialect
         if not dialect and data.query_info.source_name:
@@ -178,9 +194,13 @@ class MalloyTranslator:
                 parts[-1] = path_obj.stem
                 deps.append(AssetKey(parts))
 
-        kinds = {"malloy", "semantic_model"}
+        kinds = {"semantic_model", "malloy"}
         if source_info and source_info.connection:
-            kinds.add(source_info.connection.lower())
+            clean_conn = source_info.connection.lower().strip()
+            if "duckdb" in clean_conn:
+                kinds.add("duckdb")
+            else:
+                kinds.add(clean_conn)
 
         metadata = {
             "file_path": str(file_path),
@@ -206,7 +226,7 @@ class MalloyTranslator:
             key=self.get_source_asset_key(source_name, file_path),
             deps=deps,
             description=f"Malloy semantic model '{source_name}' defined in {file_path.name}",
-            group_name="malloy_sources",
+            group_name="malloy",
             kinds=kinds,
             metadata=metadata,
         )

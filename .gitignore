@@ -26,5 +26,5 @@ htmlcov/
 !.dagster/dagster.yaml
 *.duckdb
 
-# Demo generated data files (except .gitkeep if any)
-examples/malloy_demo/data/*.parquet
+# Demo generated data files
+malloy_demo/data/*.parquet

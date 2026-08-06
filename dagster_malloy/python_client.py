@@ -1,23 +1,20 @@
 """Python SDK Client wrapping malloy.Runtime for in-process compilation and query execution."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Tuple, Union
 
 try:
     import pandas as pd
 except ImportError:
     pd = None
 
-try:
-    import malloy
-    MALLOY_SDK_AVAILABLE = True
-except ImportError:
-    MALLOY_SDK_AVAILABLE = False
+import importlib.util
+
+MALLOY_SDK_AVAILABLE = importlib.util.find_spec("malloy") is not None
 
 
 class MalloyPythonError(Exception):
     """Raised when malloy Python SDK execution fails."""
-    pass
 
 
 class MalloyPythonClient:

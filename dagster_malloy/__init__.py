@@ -13,21 +13,21 @@ from dagster_malloy.python_client import MalloyPythonClient, MalloyPythonError
 from dagster_malloy.resource import MalloyResource
 from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData
 
-__version__ = "0.1.0"
+__version__ = "0.1.3"
 
 __all__ = [
-    "MalloyResource",
-    "MalloyTranslator",
-    "MalloyTranslatorData",
-    "load_malloy_assets",
-    "malloy_assets",
-    "MalloyParser",
-    "MalloyParsedModel",
-    "MalloyQueryInfo",
-    "MalloySourceInfo",
     "MalloyCliClient",
     "MalloyCliError",
+    "MalloyParsedModel",
+    "MalloyParser",
     "MalloyPythonClient",
     "MalloyPythonError",
+    "MalloyQueryInfo",
+    "MalloyResource",
+    "MalloySourceInfo",
+    "MalloyTranslator",
+    "MalloyTranslatorData",
     "build_malloy_asset_checks",
+    "load_malloy_assets",
+    "malloy_assets",
 ]

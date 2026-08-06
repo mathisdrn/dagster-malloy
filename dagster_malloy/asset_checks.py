@@ -1,14 +1,13 @@
 """Asset check builders for evaluating Malloy data quality assertions in Dagster."""
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Optional, Sequence, Union
+from typing import Union
 
 from dagster import (
-    AssetCheckResult,
-    AssetCheckSpec,
     AssetCheckExecutionContext,
+    AssetCheckResult,
     AssetKey,
-    AssetCheckEvaluation,
     asset_check,
 )
 
@@ -38,7 +37,6 @@ def build_malloy_asset_checks(
 
     for q_name, q_info in parsed_model.queries.items():
         if q_info.is_check or "check" in q_info.tags or q_name.startswith("check_"):
-            check_name = q_name
 
             def _make_check_fn(file_path_val: Path, q_name_val: str):
                 @asset_check(

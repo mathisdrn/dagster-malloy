@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dagster-malloy"
-version = "0.1.2"
+version = "0.1.3"
 description = "Unofficial Dagster integration for Malloy models and notebooks"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -23,8 +23,7 @@ Repository = "https://github.com/mathisdrn/dagster-malloy"
 Issues = "https://github.com/mathisdrn/dagster-malloy/issues"
 
 [project.scripts]
-dagster-malloy = "dagster_malloy.cli:main"
-dagster-malloy-demo = "dagster_malloy.cli:run_demo"
+dagster-malloy-demo = "dagster_malloy_demo.cli:run_demo"
 
 [project.optional-dependencies]
 pandas = [
@@ -51,7 +50,13 @@ directory_type = "project"
 root_module = "dagster_malloy"
 
 [tool.hatch.build.targets.wheel]
-packages = ["dagster_malloy"]
+packages = ["dagster_malloy", "dagster_malloy_demo"]
+include = [
+    "dagster_malloy_demo/models/*.malloy",
+    "dagster_malloy_demo/definitions.py",
+    "dagster_malloy_demo/generate_data.py",
+    "dagster_malloy_demo/asset_lineage.svg",
+]
 
 [tool.pytest.ini_options]
 python_files = "test_*.py"
