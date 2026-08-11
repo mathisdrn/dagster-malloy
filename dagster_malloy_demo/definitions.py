@@ -172,7 +172,6 @@ malloy_table_assets = load_malloy_assets(
     execution_mode="warehouse",
     materialization_mode="table",
     db_resource_key="duckdb",
-    create_dashboards=True,
     include_sources=False,
 )
 
