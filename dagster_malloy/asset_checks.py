@@ -1,8 +1,9 @@
 """Asset check builders for evaluating Malloy data quality assertions in Dagster."""
 
+import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Union
+from typing import Optional, Union
 
 from dagster import (
     AssetCheckExecutionContext,
@@ -21,6 +22,9 @@ def build_malloy_asset_checks(
     file_path: Union[str, Path],
     target_asset_key: AssetKey,
     resource_key: str = "malloy",
+    manifest_path: Optional[Union[str, Path]] = None,
+    use_manifest_if_exists: bool = True,
+    auto_recompile_if_stale: bool = True,
 ) -> Sequence:
     """Discovers Malloy check queries (queries named check_* or annotated with # @check) and returns Dagster asset checks."""
     path_obj = Path(file_path).resolve()
@@ -28,7 +32,67 @@ def build_malloy_asset_checks(
         raise FileNotFoundError(f"Malloy file not found: {path_obj}")
 
     parser = MalloyParser()
-    parsed_model = parser.parse_file(path_obj)
+
+    # Staleness check and auto-recompilation
+    if auto_recompile_if_stale and shutil.which("node") and (use_manifest_if_exists or manifest_path):
+        manifest_file = (
+            Path(manifest_path).resolve()
+            if manifest_path
+            else (
+                path_obj / "malloy_manifest.json"
+                if path_obj.is_dir()
+                else (
+                    path_obj.with_suffix(".malloy.json")
+                    if path_obj.with_suffix(".malloy.json").exists()
+                    else path_obj.parent / "malloy_manifest.json"
+                )
+            )
+        )
+        malloy_files = (
+            list(path_obj.glob("**/*.malloy")) + list(path_obj.glob("**/*.malloynb"))
+            if path_obj.is_dir()
+            else [path_obj]
+        )
+        is_stale = not manifest_file.exists() or (
+            malloy_files
+            and max(f.stat().st_mtime for f in malloy_files) > manifest_file.stat().st_mtime
+        )
+        if is_stale:
+            parser.build_manifest(path_obj, output_path=manifest_path)
+
+    # Determine manifest loading
+    manifest_dict = None
+    if manifest_path:
+        m_file = Path(manifest_path).resolve()
+        if m_file.exists():
+            manifest_dict = parser.load_manifest(m_file)
+    elif use_manifest_if_exists:
+        if path_obj.is_dir():
+            candidate = path_obj / "malloy_manifest.json"
+            if candidate.exists():
+                manifest_dict = parser.load_manifest(candidate)
+        else:
+            candidates = [
+                path_obj.parent / "malloy_manifest.json",
+                path_obj.with_suffix(".malloy.json"),
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    manifest_dict = parser.load_manifest(candidate)
+                    break
+
+    models_map = manifest_dict.get("models", manifest_dict) if manifest_dict else None
+
+    parsed_model = None
+    if models_map:
+        keys_to_try = [str(path_obj.resolve()), path_obj.name, str(path_obj)]
+        for k in keys_to_try:
+            if k in models_map:
+                parsed_model = parser.from_ast_dict(models_map[k], file_path=path_obj)
+                break
+
+    if parsed_model is None:
+        parsed_model = parser.parse_file(path_obj)
 
     checks = []
 

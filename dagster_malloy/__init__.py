@@ -12,7 +12,7 @@ from dagster_malloy.parser import (
 from dagster_malloy.resource import MalloyResource
 from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 __all__ = [
     "MalloyCliClient",

@@ -1,5 +1,6 @@
 """Multi-asset factory decorators for registering Malloy models in Dagster."""
 
+import shutil
 import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
@@ -88,6 +89,7 @@ def load_malloy_assets(
     can_subset: bool = True,
     manifest_path: Optional[Union[str, Path]] = None,
     use_manifest_if_exists: bool = True,
+    auto_recompile_if_stale: bool = True,
 ) -> AssetsDefinition:
     """Loads Malloy queries and models from a file or directory as Dagster Software-Defined Assets."""
     path_obj = Path(path).resolve()
@@ -104,6 +106,28 @@ def load_malloy_assets(
 
     translator = translator or MalloyTranslator()
     parser = MalloyParser()
+
+    # Staleness check and auto-recompilation
+    if auto_recompile_if_stale and shutil.which("node") and (use_manifest_if_exists or manifest_path):
+        manifest_file = (
+            Path(manifest_path).resolve()
+            if manifest_path
+            else (
+                path_obj / "malloy_manifest.json"
+                if path_obj.is_dir()
+                else (
+                    path_obj.with_suffix(".malloy.json")
+                    if path_obj.with_suffix(".malloy.json").exists()
+                    else path_obj.parent / "malloy_manifest.json"
+                )
+            )
+        )
+        is_stale = not manifest_file.exists() or (
+            malloy_files
+            and max(f.stat().st_mtime for f in malloy_files) > manifest_file.stat().st_mtime
+        )
+        if is_stale:
+            parser.build_manifest(path_obj, output_path=manifest_path)
 
     # Determine manifest loading
     manifest_dict = None
@@ -340,17 +364,20 @@ def malloy_assets(
     can_subset: bool = True,
     manifest_path: Optional[Union[str, Path]] = None,
     use_manifest_if_exists: bool = True,
+    auto_recompile_if_stale: bool = True,
 ) -> Callable:
     """Decorator version of load_malloy_assets."""
     def decorator(fn: Callable) -> AssetsDefinition:
         return load_malloy_assets(
             path=path,
             translator=translator,
+            name=group_name,
             create_dashboards=create_dashboards,
             include_sources=include_sources,
             can_subset=can_subset,
             manifest_path=manifest_path,
             use_manifest_if_exists=use_manifest_if_exists,
+            auto_recompile_if_stale=auto_recompile_if_stale,
         )
 
     return decorator
