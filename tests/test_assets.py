@@ -43,7 +43,7 @@ def test_load_malloy_assets_discovery(temp_malloy_dir: Path):
     assets_def = load_malloy_assets(temp_malloy_dir, include_sources=False)
 
     assert assets_def is not None
-    assert len(assets_def.keys) == 3  # revenue_by_region, region_dashboard, region_dashboard_dashboard
+    assert len(assets_def.keys) == 2  # revenue_by_region, region_dashboard
     expected_key = AssetKey(["sales", "revenue_by_region"])
     assert expected_key in assets_def.keys
 
@@ -52,7 +52,7 @@ def test_load_malloy_assets_with_sources(temp_malloy_dir: Path):
     assets_def = load_malloy_assets(temp_malloy_dir, include_sources=True)
 
     assert assets_def is not None
-    assert len(assets_def.keys) == 4  # orders (source), revenue_by_region, region_dashboard, region_dashboard_dashboard
+    assert len(assets_def.keys) == 3  # orders (source), revenue_by_region, region_dashboard
     source_key = AssetKey(["sales", "orders"])
     assert source_key in assets_def.keys
 
@@ -82,7 +82,7 @@ def test_materialize_malloy_assets(mock_cli_cls, temp_malloy_dir: Path):
 
     assert result.success
     mat_events = result.get_asset_materialization_events()
-    assert len(mat_events) == 3
+    assert len(mat_events) == 2
 
     mat_event = mat_events[0]
     metadata = mat_event.materialization.metadata

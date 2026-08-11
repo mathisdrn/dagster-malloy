@@ -1,4 +1,4 @@
-# Malloy E-Commerce Analytics Model
+# Malloy E-Commerce Analytics Semantic Model
 source: customers is duckdb.table('data/customers.parquet') extend {
   primary_key: id
 }
@@ -12,47 +12,86 @@ source: orders is duckdb.table('data/orders.parquet') extend {
   join_one: customers on customer_id = customers.id
   join_one: products on product_id = products.id
 
-  # Reusable View 1: Customer Performance
+  # Dimensions (Calculated Columns)
+  dimension: line_item_amount is price * quantity
+
+  # Measures (Reusable Business Aggregations)
+  measure:
+    total_revenue is sum(line_item_amount)
+    total_orders is count()
+    avg_order_value is total_revenue / total_orders
+    high_value_order_count is count() { where: line_item_amount >= 300.0 }
+
+  # Reusable View 1: Customer Performance Breakdown
   view: customer_performance is {
     group_by: customers.name, customers.segment, customers.state
     aggregate:
-      total_orders is count()
-      total_spent is sum(price * quantity)
+      total_orders
+      total_revenue
+      avg_order_value
   }
 
-  # Reusable View 2: Category Breakdown
+  # Reusable View 2: Product Category Revenue
   view: category_performance is {
     group_by: products.category, customers.segment
-    aggregate: gross_revenue is sum(price * quantity)
+    aggregate: total_revenue
   }
 
-  # Reusable View 3: Daily Sales Trend
+  # Reusable View 3: Daily Revenue Trend
   view: daily_sales_trend is {
     group_by: order_date
-    aggregate: gross_revenue is sum(price * quantity)
+    aggregate: total_revenue, total_orders
   }
 }
 
-# Customer Analytics Query Asset
+# --- DAGSTER ASSETS ---
+
+# Asset 1: Customer Analytics Warehouse Table
 query: customer_analytics is orders -> customer_performance
 
-# Executive Sales Dashboard Query Asset
+# Asset 2: High-Value Orders Subset Query
+query: high_value_orders is orders -> {
+  where: line_item_amount >= 300.0
+  group_by: customers.name, price, quantity
+  aggregate: total_revenue
+}
+
+# Asset 3: Executive Sales Dashboard (Annotated Visual Report)
 # @dashboard
 query: executive_sales is orders -> {
   aggregate:
-    total_revenue is sum(price * quantity)
-    total_orders is count()
+    total_revenue
+    total_orders
+    avg_order_value
 
+  # Nested Query 1: Product Category Breakdown
   # @bar_chart
   nest: category_performance
 
+  # Nested Query 2: Daily Sales Trend
   # @line_chart
   nest: daily_sales_trend
+
+  # Nested Query 3: Top VIP Customers Table
+  nest: top_customers is {
+    group_by: customers.name, customers.segment
+    aggregate: total_revenue
+    limit: 5
+  }
 }
 
-# Data Quality Check: Verify Customer IDs are non-null
+# --- DATA QUALITY CHECKS ---
+
+# Check 1: Verify all orders have valid, non-null customer IDs
 # @check
 query: check_valid_customer_ids is orders -> {
   where: customer_id is null
+  aggregate: invalid_count is count()
+}
+
+# Check 2: Verify all order prices are strictly positive
+# @check
+query: check_positive_prices is orders -> {
+  where: price <= 0
   aggregate: invalid_count is count()
 }

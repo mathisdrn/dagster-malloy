@@ -29,6 +29,26 @@ class MalloyTranslatorData:
     include_sources: bool = True
 
 
+def _table_to_asset_key(table_str: str) -> AssetKey:
+    """Converts a table name, catalog reference (e.g. DuckLake), or file path string to a Dagster AssetKey."""
+    table = table_str.strip("'\"")
+    known_extensions = {".parquet", ".csv", ".json", ".duckdb", ".db", ".orc", ".avro", ".tsv"}
+
+    path_obj = Path(table)
+
+    if "." in table and path_obj.suffix.lower() not in known_extensions:
+        parts = [p.strip() for p in table.split(".") if p.strip()]
+        return AssetKey(parts)
+
+    clean_parts = [p for p in path_obj.parts if p not in ("/", "\\", "")]
+    if clean_parts:
+        clean_parts[-1] = path_obj.stem
+        parts_to_use = [clean_parts[-1]] if path_obj.is_absolute() else clean_parts
+        return AssetKey(parts_to_use)
+
+    return AssetKey([table.replace(".", "_")])
+
+
 class MalloyTranslator:
     """Base translator class mapping Malloy queries/models to Dagster AssetSpecs.
 
@@ -104,7 +124,11 @@ class MalloyTranslator:
 
     def get_kinds(self, data: MalloyTranslatorData) -> Set[str]:
         """Computes the kind badges (e.g. 'malloy', 'duckdb', 'dashboard') for the asset UI."""
-        kinds = {"malloy", "⚙️ Query"}
+        kinds = {"malloy"}
+        if data.query_info.is_dashboard or "dashboard" in data.query_info.tags:
+            kinds.add("dashboard")
+        else:
+            kinds.add("⚙️\N{NO-BREAK SPACE}Query")
 
         dialect = data.dialect
         if not dialect and data.query_info.source_name:
@@ -160,6 +184,8 @@ class MalloyTranslator:
             metadata["source_name"] = data.query_info.source_name
         if data.query_info.view_name:
             metadata["view_name"] = data.query_info.view_name
+        if data.query_info.nested_views:
+            metadata["composed_views"] = MetadataValue.text(", ".join(data.query_info.nested_views))
         if data.compiled_sql:
             metadata["compiled_sql"] = data.compiled_sql
         if data.dialect:
@@ -206,14 +232,9 @@ class MalloyTranslator:
                 if base_key not in deps:
                     deps.append(base_key)
             elif source_info.table_or_sql:
-                table = source_info.table_or_sql.strip("'\"")
-                path_obj = Path(table)
-                parts = list(path_obj.parts)
-                if parts:
-                    parts[-1] = path_obj.stem
-                    key = AssetKey(parts)
-                    if key not in deps:
-                        deps.append(key)
+                key = _table_to_asset_key(source_info.table_or_sql)
+                if key not in deps:
+                    deps.append(key)
 
         kinds = {"semantic_model", "malloy"}
         if source_info and source_info.connection:

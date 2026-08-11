@@ -9,10 +9,11 @@ from dagster_malloy.parser import (
     MalloyQueryInfo,
     MalloySourceInfo,
 )
+from dagster_malloy.project import MalloyProject
 from dagster_malloy.resource import MalloyResource
 from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData
 
-__version__ = "0.2.1"
+__version__ = "0.2.3"
 
 __all__ = [
     "MalloyCliClient",
@@ -20,6 +21,7 @@ __all__ = [
     "MalloyEnvironmentError",
     "MalloyParsedModel",
     "MalloyParser",
+    "MalloyProject",
     "MalloyQueryInfo",
     "MalloyResource",
     "MalloySourceInfo",
@@ -29,4 +31,3 @@ __all__ = [
     "load_malloy_assets",
     "malloy_assets",
 ]
-

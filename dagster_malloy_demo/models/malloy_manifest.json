@@ -1,0 +1,251 @@
+{
+  "version": "1.0",
+  "models": {
+    "sales.malloy": {
+      "file_path": "/Users/mathisderenne/GitHub/dagster-malloy/dagster_malloy_demo/models/sales.malloy",
+      "sources": {
+        "customers": {
+          "name": "customers",
+          "connection": "duckdb",
+          "table_or_sql": "data/customers.parquet",
+          "base_source_name": null,
+          "line_number": 2,
+          "raw_code": "source: customers is duckdb.table('data/customers.parquet') extend {\n  primary_key: id\n}",
+          "joined_sources": []
+        },
+        "products": {
+          "name": "products",
+          "connection": "duckdb",
+          "table_or_sql": "data/products.parquet",
+          "base_source_name": null,
+          "line_number": 6,
+          "raw_code": "source: products is duckdb.table('data/products.parquet') extend {\n  primary_key: id\n}",
+          "joined_sources": []
+        },
+        "orders": {
+          "name": "orders",
+          "connection": "duckdb",
+          "table_or_sql": "data/orders.parquet",
+          "base_source_name": null,
+          "line_number": 10,
+          "raw_code": "source: orders is duckdb.table('data/orders.parquet') extend {\n  primary_key: id\n  join_one: customers on customer_id = customers.id\n  join_one: products on product_id = products.id\n\n  # Dimensions (Calculated Columns)\n  dimension: line_item_amount is price * quantity\n\n  # Measures (Reusable Business Aggregations)\n  measure:\n    total_revenue is sum(line_item_amount)\n    total_orders is count()\n    avg_order_value is total_revenue / total_orders\n    high_value_order_count is count() { where: line_item_amount >= 300.0 }\n\n  # Reusable View 1: Customer Performance Breakdown\n  view: customer_performance is {\n    group_by: customers.name, customers.segment, customers.state\n    aggregate:\n      total_orders\n      total_revenue\n      avg_order_value\n  }\n\n  # Reusable View 2: Product Category Revenue\n  view: category_performance is {\n    group_by: products.category, customers.segment\n    aggregate: total_revenue\n  }\n\n  # Reusable View 3: Daily Revenue Trend\n  view: daily_sales_trend is {\n    group_by: order_date\n    aggregate: total_revenue, total_orders\n  }\n}",
+          "joined_sources": [
+            "customers",
+            "products"
+          ]
+        }
+      },
+      "queries": {
+        "customer_analytics": {
+          "name": "customer_analytics",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Asset 1: Customer Analytics Warehouse Table",
+          "line_number": 50,
+          "raw_code": "query: customer_analytics is orders -> customer_performance",
+          "is_check": false,
+          "is_dashboard": false,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [],
+          "nested_views": []
+        },
+        "high_value_orders": {
+          "name": "high_value_orders",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Asset 2: High-Value Orders Subset Query",
+          "line_number": 53,
+          "raw_code": "query: high_value_orders is orders -> {\n  where: line_item_amount >= 300.0\n  group_by: customers.name, price, quantity\n  aggregate: total_revenue\n}",
+          "is_check": false,
+          "is_dashboard": false,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [],
+          "nested_views": []
+        },
+        "executive_sales": {
+          "name": "executive_sales",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Asset 3: Executive Sales Dashboard (Annotated Visual Report)",
+          "line_number": 61,
+          "raw_code": "query: executive_sales is orders -> {\n  aggregate:\n    total_revenue\n    total_orders\n    avg_order_value\n\n  # Nested Query 1: Product Category Breakdown\n  # @bar_chart\n  nest: category_performance\n\n  # Nested Query 2: Daily Sales Trend\n  # @line_chart\n  nest: daily_sales_trend\n\n  # Nested Query 3: Top VIP Customers Table\n  nest: top_customers is {\n    group_by: customers.name, customers.segment\n    aggregate: total_revenue\n    limit: 5\n  }\n}",
+          "is_check": false,
+          "is_dashboard": true,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [
+            "dashboard"
+          ],
+          "nested_views": [
+            "category_performance",
+            "daily_sales_trend",
+            "top_customers"
+          ]
+        },
+        "check_valid_customer_ids": {
+          "name": "check_valid_customer_ids",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Check 1: Verify all orders have valid, non-null customer IDs",
+          "line_number": 87,
+          "raw_code": "query: check_valid_customer_ids is orders -> {\n  where: customer_id is null\n  aggregate: invalid_count is count()\n}",
+          "is_check": true,
+          "is_dashboard": false,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [
+            "check"
+          ],
+          "nested_views": []
+        },
+        "check_positive_prices": {
+          "name": "check_positive_prices",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Check 2: Verify all order prices are strictly positive",
+          "line_number": 94,
+          "raw_code": "query: check_positive_prices is orders -> {\n  where: price <= 0\n  aggregate: invalid_count is count()\n}",
+          "is_check": true,
+          "is_dashboard": false,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [
+            "check"
+          ],
+          "nested_views": []
+        }
+      },
+      "imports": [],
+      "table_dependencies": [
+        "data/customers.parquet",
+        "data/products.parquet",
+        "data/orders.parquet"
+      ]
+    },
+    "/Users/mathisderenne/GitHub/dagster-malloy/dagster_malloy_demo/models/sales.malloy": {
+      "file_path": "/Users/mathisderenne/GitHub/dagster-malloy/dagster_malloy_demo/models/sales.malloy",
+      "sources": {
+        "customers": {
+          "name": "customers",
+          "connection": "duckdb",
+          "table_or_sql": "data/customers.parquet",
+          "base_source_name": null,
+          "line_number": 2,
+          "raw_code": "source: customers is duckdb.table('data/customers.parquet') extend {\n  primary_key: id\n}",
+          "joined_sources": []
+        },
+        "products": {
+          "name": "products",
+          "connection": "duckdb",
+          "table_or_sql": "data/products.parquet",
+          "base_source_name": null,
+          "line_number": 6,
+          "raw_code": "source: products is duckdb.table('data/products.parquet') extend {\n  primary_key: id\n}",
+          "joined_sources": []
+        },
+        "orders": {
+          "name": "orders",
+          "connection": "duckdb",
+          "table_or_sql": "data/orders.parquet",
+          "base_source_name": null,
+          "line_number": 10,
+          "raw_code": "source: orders is duckdb.table('data/orders.parquet') extend {\n  primary_key: id\n  join_one: customers on customer_id = customers.id\n  join_one: products on product_id = products.id\n\n  # Dimensions (Calculated Columns)\n  dimension: line_item_amount is price * quantity\n\n  # Measures (Reusable Business Aggregations)\n  measure:\n    total_revenue is sum(line_item_amount)\n    total_orders is count()\n    avg_order_value is total_revenue / total_orders\n    high_value_order_count is count() { where: line_item_amount >= 300.0 }\n\n  # Reusable View 1: Customer Performance Breakdown\n  view: customer_performance is {\n    group_by: customers.name, customers.segment, customers.state\n    aggregate:\n      total_orders\n      total_revenue\n      avg_order_value\n  }\n\n  # Reusable View 2: Product Category Revenue\n  view: category_performance is {\n    group_by: products.category, customers.segment\n    aggregate: total_revenue\n  }\n\n  # Reusable View 3: Daily Revenue Trend\n  view: daily_sales_trend is {\n    group_by: order_date\n    aggregate: total_revenue, total_orders\n  }\n}",
+          "joined_sources": [
+            "customers",
+            "products"
+          ]
+        }
+      },
+      "queries": {
+        "customer_analytics": {
+          "name": "customer_analytics",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Asset 1: Customer Analytics Warehouse Table",
+          "line_number": 50,
+          "raw_code": "query: customer_analytics is orders -> customer_performance",
+          "is_check": false,
+          "is_dashboard": false,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [],
+          "nested_views": []
+        },
+        "high_value_orders": {
+          "name": "high_value_orders",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Asset 2: High-Value Orders Subset Query",
+          "line_number": 53,
+          "raw_code": "query: high_value_orders is orders -> {\n  where: line_item_amount >= 300.0\n  group_by: customers.name, price, quantity\n  aggregate: total_revenue\n}",
+          "is_check": false,
+          "is_dashboard": false,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [],
+          "nested_views": []
+        },
+        "executive_sales": {
+          "name": "executive_sales",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Asset 3: Executive Sales Dashboard (Annotated Visual Report)",
+          "line_number": 61,
+          "raw_code": "query: executive_sales is orders -> {\n  aggregate:\n    total_revenue\n    total_orders\n    avg_order_value\n\n  # Nested Query 1: Product Category Breakdown\n  # @bar_chart\n  nest: category_performance\n\n  # Nested Query 2: Daily Sales Trend\n  # @line_chart\n  nest: daily_sales_trend\n\n  # Nested Query 3: Top VIP Customers Table\n  nest: top_customers is {\n    group_by: customers.name, customers.segment\n    aggregate: total_revenue\n    limit: 5\n  }\n}",
+          "is_check": false,
+          "is_dashboard": true,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [
+            "dashboard"
+          ],
+          "nested_views": [
+            "category_performance",
+            "daily_sales_trend",
+            "top_customers"
+          ]
+        },
+        "check_valid_customer_ids": {
+          "name": "check_valid_customer_ids",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Check 1: Verify all orders have valid, non-null customer IDs",
+          "line_number": 87,
+          "raw_code": "query: check_valid_customer_ids is orders -> {\n  where: customer_id is null\n  aggregate: invalid_count is count()\n}",
+          "is_check": true,
+          "is_dashboard": false,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [
+            "check"
+          ],
+          "nested_views": []
+        },
+        "check_positive_prices": {
+          "name": "check_positive_prices",
+          "source_name": "orders",
+          "view_name": null,
+          "description": "Check 2: Verify all order prices are strictly positive",
+          "line_number": 94,
+          "raw_code": "query: check_positive_prices is orders -> {\n  where: price <= 0\n  aggregate: invalid_count is count()\n}",
+          "is_check": true,
+          "is_dashboard": false,
+          "is_notebook_cell": false,
+          "cell_index": null,
+          "tags": [
+            "check"
+          ],
+          "nested_views": []
+        }
+      },
+      "imports": [],
+      "table_dependencies": [
+        "data/customers.parquet",
+        "data/products.parquet",
+        "data/orders.parquet"
+      ]
+    }
+  }
+}

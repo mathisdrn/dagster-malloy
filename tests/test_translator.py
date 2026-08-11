@@ -29,7 +29,7 @@ def test_default_translator_spec():
     translator = MalloyTranslator()
     spec = translator.get_asset_spec(trans_data)
 
-    assert spec.kinds == {"⚙️ Query", "malloy", "duckdb"}
+    assert spec.kinds == {"malloy", "⚙️\N{NO-BREAK SPACE}Query", "duckdb"}
     assert spec.key == AssetKey(["sales", "monthly_revenue"])
     assert spec.description == "Monthly revenue query"
     assert spec.group_name == "malloy"
@@ -115,5 +115,18 @@ def test_translator_dashboard_kinds():
     translator = MalloyTranslator()
     spec = translator.get_asset_spec(trans_data)
 
-    assert spec.kinds == {"⚙️ Query", "malloy", "duckdb"}
+    assert spec.kinds == {"malloy", "dashboard", "duckdb"}
+
+
+def test_ducklake_catalog_asset_key():
+    from dagster_malloy.translator import _table_to_asset_key
+
+    # Multi-part DuckLake / Iceberg catalog references
+    assert _table_to_asset_key("ducklake.analytics.orders") == AssetKey(["ducklake", "analytics", "orders"])
+    assert _table_to_asset_key("ducklake.orders") == AssetKey(["ducklake", "orders"])
+    
+    # Standard Parquet file paths
+    assert _table_to_asset_key("data/orders.parquet") == AssetKey(["data", "orders"])
+    assert _table_to_asset_key("/var/data/orders.parquet") == AssetKey(["orders"])
+
 

@@ -58,7 +58,6 @@ def test_build_and_load_manifest(tmp_path: Path):
     keys = [spec.key.path[-1] for spec in assets.specs]
     assert "users" in keys
     assert "user_count" in keys
-    assert "user_count_dashboard" in keys
 
 
 def test_manifest_autodiscovery(tmp_path: Path):

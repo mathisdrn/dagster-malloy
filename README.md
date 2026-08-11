@@ -4,10 +4,11 @@
 
 ## Features
 
-- **Malloy as Dagster assets:** Expose Malloy queries, dashboards and notebooks as Dagster assets including rich metadata (compiled SQL, Malloy source code, column schema, row preview, code references, and execution duration).
+- **Malloy as Dagster assets:** Expose Malloy queries, dashboards, and notebooks as Dagster assets including rich metadata (compiled SQL, DDL, Malloy source code, column schema, row preview, code references, and execution duration).
+- **Warehouse-Native Materialization (CTAS/CVAS):** Execute compiled Malloy models directly inside target database warehouses (`DuckDB`, `BigQuery`, `Snowflake`, `Postgres`, `Redshift`) via `CREATE TABLE / VIEW AS <compiled_sql>` using Dagster database connection resources. Eliminates data egress and Python RAM bottlenecks.
+- **In-Memory DataFrame Pattern:** Optionally stream or load small-to-medium query results as [Polars DataFrames](https://pola.rs) into Python for downstream machine learning or custom Python data assets.
 - **Complete data lineage:** Automatically resolve Malloy source dependencies — including joined sources — to build a complete asset graph visible in the Dagster UI.
-- **Materialization:** Queries are compiled and executed via `malloy-cli` or the `malloy` Python SDK. Results are surfaced as [Apache Arrow](https://arrow.apache.org), enabling zero-copy handoff to downstream assets.
-- **Data quality checks:** Write validation queries directly in Malloy and have them run automatically as Dagster [asset checks](https://docs.dagster.io/concepts/assets/asset-checks). Failed checks block downstream materializations, appear in the Dagster UI timeline, and are tracked in the asset health history — without any extra orchestration code.
+- **Data quality checks:** Write validation queries directly in Malloy and have them run automatically as Dagster [asset checks](https://docs.dagster.io/concepts/assets/asset-checks) — either inline during asset materialization or as standalone check definitions. In warehouse mode, checks run directly against database connections in milliseconds.
 
     ```malloy
     # Verify Customer IDs are non-null
@@ -35,38 +36,75 @@ This generates a sample project (`./malloy_demo`) and launches the Dagster UI at
 uv add dagster-malloy
 ```
 
-
-
-
-
 ## Usage
 
-### 1. Loading Malloy assets
+### 1. Warehouse-Native Materialization (Recommended for Production & ELT)
 
-Use `load_malloy_assets` to discover and construct Dagster assets from `.malloy` files or `.malloynb` notebooks in a directory:
+Use `execution_mode="warehouse"` to compile Malloy queries into dialect-optimized SQL and execute `CREATE TABLE / VIEW AS <sql>` directly in your warehouse using Dagster database resources (`DuckDBResource`, `BigQueryResource`, `SnowflakeResource`):
+
+```python
+from pathlib import Path
+from dagster import Definitions
+from dagster_duckdb import DuckDBResource
+from dagster_malloy import load_malloy_assets, MalloyResource
+
+# Materializes Malloy queries as tables directly in DuckDB warehouse
+malloy_table_assets = load_malloy_assets(
+    path=Path(__file__).parent / "models",
+    execution_mode="warehouse",
+    materialization_mode="table", # "table" (CTAS) or "view" (CVAS)
+    db_resource_key="duckdb",
+)
+
+defs = Definitions(
+    assets=[malloy_table_assets],
+    resources={
+        "malloy": MalloyResource(execution_mode="warehouse"),
+        "duckdb": DuckDBResource(database="data/warehouse.duckdb"),
+    },
+)
+```
+
+### 2. Loading Malloy Assets (In-Memory / Auto Mode)
+
+Use `load_malloy_assets` in `auto` mode for local development or Python data assets. Queries are executed and returned as `polars.DataFrame`:
 
 ```python
 from pathlib import Path
 from dagster import Definitions
 from dagster_malloy import load_malloy_assets, MalloyResource
 
-# Loads Malloy assets using pre-compiled manifest (if present) or dynamic Node.js parsing
 malloy_assets = load_malloy_assets(
     path=Path(__file__).parent / "models",
-    use_manifest_if_exists=True,  # Default: True
+    include_checks=True,  # Default: True (registers inline asset checks)
 )
 
 defs = Definitions(
     assets=[malloy_assets],
     resources={
-        "malloy": MalloyResource(
-            cli_path="npx malloy-cli",
-        ),
+        "malloy": MalloyResource(cli_path="npx malloy-cli"),
     },
 )
 ```
 
-### 2. AST Manifests & Serverless / Python-Only Deployments
+### 3. Using `MalloyProject`
+
+Use `MalloyProject` to manage project paths, manifest location, and dev auto-compilation in a single object:
+
+```python
+from pathlib import Path
+from dagster_malloy import MalloyProject, load_malloy_assets
+
+project = MalloyProject(
+    path=Path(__file__).parent / "models",
+    manifest_path=Path(__file__).parent / "models" / "malloy_manifest.json",
+    auto_recompile_if_stale=True,  # Default: True
+)
+
+malloy_assets = load_malloy_assets(project=project)
+```
+
+### 4. AST Manifests & Serverless / Python-Only Deployments
 
 In production or serverless environments (Cloud Run, ECS, Kubernetes), you can eliminate **100% of the Node.js runtime dependency** for loading Dagster asset definitions by pre-compiling an AST manifest during CI/CD or Docker build.
 
@@ -81,31 +119,34 @@ dagster-malloy build-manifest analytics/ --output analytics/malloy_manifest.json
 
 #### Loading Pre-compiled Manifests:
 
-When `malloy_manifest.json` exists alongside your models (or when `manifest_path` is explicitly passed to `load_malloy_assets`), `dagster-malloy` loads asset definitions in **pure Python (< 1ms)** without calling Node.js.
+When `malloy_manifest.json` exists alongside your models (or when `manifest_path` is explicitly passed), `dagster-malloy` loads asset definitions in **pure Python (< 1ms)** without calling Node.js.
 
 ```python
 malloy_assets = load_malloy_assets(
     path=PROJECT_ROOT / "analytics",
-    manifest_path=PROJECT_ROOT / "analytics" / "malloy_manifest.json",  # Optional explicit path
-    use_manifest_if_exists=True,  # Default: True
+    manifest_path=PROJECT_ROOT / "analytics" / "malloy_manifest.json",
+    use_manifest_if_exists=True,
 )
 ```
 
-If Node.js is missing from `$PATH` and no manifest is available, `dagster-malloy` raises an explicit `MalloyEnvironmentError` with actionable instructions.
+### 5. Execution Modes Configuration
 
-### 3. Execution configuration
+`dagster-malloy` supports three execution engine modes via `MalloyResource` or `load_malloy_assets`:
 
-`dagster-malloy` compiles and executes queries using `malloy-cli` / `npx malloy-cli` via `MalloyResource`:
+* **`"warehouse"`**: Compiles query to SQL and executes `CREATE TABLE/VIEW AS <sql>` directly via Dagster database resource. Zero data egress to Python.
+* **`"cli"`**: Executes query via `malloy-cli run --json` and returns `polars.DataFrame`.
+* **`"auto"` (Default)**: Resolves automatically to CLI or warehouse execution mode.
 
 ```python
 resource = MalloyResource(
-    cli_path="npx malloy-cli",  # Optional custom executable or path
+    execution_mode="warehouse",
+    cli_path="npx malloy-cli",  # Path to malloy-cli binary or npx
     config_path="path/to/malloy-config.json",  # Optional path to database connections config
     project_dir="path/to/project",  # Optional project root for relative file paths
 )
 ```
 
-### 4. Custom translator (`MalloyTranslator`)
+### 6. Custom Translator (`MalloyTranslator`)
 
 Subclass `MalloyTranslator` to customize asset keys, tags, group names, metadata, or upstream dependencies:
 
@@ -128,9 +169,11 @@ malloy_assets = load_malloy_assets(
 )
 ```
 
-### 5. Data quality checks
+### 7. Data Quality Checks
 
-Use `build_malloy_asset_checks` to discover check queries in a `.malloy` file and register them as Dagster `AssetCheckResult` checks attached to a target asset:
+Malloy check queries (starting with `check_`, `test_`, `assert_` or annotated with `# @check`) are automatically registered as inline Dagster asset checks by default (`include_checks=True`).
+
+Alternatively, use `build_malloy_asset_checks` to register standalone asset check definitions attached to a target asset:
 
 ```python
 from dagster import AssetKey
@@ -139,18 +182,18 @@ from dagster_malloy import build_malloy_asset_checks
 checks = build_malloy_asset_checks(
     file_path="./models/sales.malloy",
     target_asset_key=AssetKey(["sales", "customer_analytics"]),
+    execution_mode="warehouse",
+    db_resource_key="duckdb",
 )
 ```
-
-A query is recognised as a check if it's name starts with `check_`, `test_`, `assert_` (eg. `query: check_valid_ids is ...`) or if it's annotated with `# @check`, `# @test` or `# @assert` before the query definition.
 
 A check **passes** when the query returns zero rows, or when the first row contains `invalid_count = 0` or `fail_count = 0`.
 
 ## Example Project
 
-A self-contained runnable example project is available in [`dagster_malloy_demo`](dagster_malloy_demo) with instructions to run locally.
+A self-contained runnable example project is available in [`dagster_malloy_demo`](dagster_malloy_demo) demonstrating DuckDB warehouse CTAS materialization, view materialization, and parameterized queries.
 
-To clone and run the example locally:
+To run the example locally:
 
 ```bash
 git clone https://github.com/mathisdrn/dagster-malloy.git
@@ -160,7 +203,6 @@ uv run dg dev -f definitions.py
 ```
 
 Open [http://127.0.0.1:3000](http://127.0.0.1:3000) to view the asset catalog and lineage graph.
-
 
 ## Contributing
 

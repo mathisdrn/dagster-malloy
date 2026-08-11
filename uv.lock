@@ -1067,11 +1067,13 @@ wheels = [
 
 [[package]]
 name = "dagster-malloy"
-version = "0.2.1"
+version = "0.2.3"
 source = { editable = "." }
 dependencies = [
     { name = "dagster", version = "1.12.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "dagster", version = "1.13.16", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "duckdb", version = "1.4.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "duckdb", version = "1.5.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "polars", version = "1.36.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "polars", version = "1.43.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "pydantic" },
@@ -1098,6 +1100,7 @@ requires-dist = [
     { name = "dagster", specifier = ">=1.6.0" },
     { name = "dagster-dg-cli", marker = "extra == 'dev'", specifier = ">=1.12.0" },
     { name = "dagster-webserver", marker = "extra == 'dev'", specifier = ">=1.6.0" },
+    { name = "duckdb", specifier = ">=0.9.0" },
     { name = "duckdb", marker = "extra == 'test'", specifier = ">=0.9.0" },
     { name = "polars", specifier = ">=0.20.0" },
     { name = "polars", marker = "extra == 'test'", specifier = ">=0.20.0" },

@@ -82,26 +82,23 @@ class MalloyCliClient:
     def _get_cwd(self, file_path: Optional[Union[str, Path]] = None) -> Optional[str]:
         """Determine the working directory to use for executing malloy-cli."""
         if self.project_dir:
-            return self.project_dir
+            return str(Path(self.project_dir).resolve())
         if self.config_path:
-            # First, check if any parent of the config file contains project root indicators (.git, pyproject.toml, uv.lock, definitions.py)
             start_dir = Path(self.config_path).resolve().parent
             for parent in [start_dir] + list(start_dir.parents):
                 if any((parent / indicator).exists() for indicator in [".git", "pyproject.toml", "uv.lock", "definitions.py", "dagster.yaml"]):
-                    return str(parent)
-            return str(start_dir)
+                    return str(parent.resolve())
+            return str(start_dir.resolve())
 
         if file_path:
             start_dir = Path(file_path).resolve().parent
-            # First look for a project root containing git/pyproject/uv.lock/definitions.py
             for parent in [start_dir] + list(start_dir.parents):
                 if any((parent / indicator).exists() for indicator in [".git", "pyproject.toml", "uv.lock", "definitions.py", "dagster.yaml"]):
-                    return str(parent)
-            # If not found, look for directory with malloy-config.json
+                    return str(parent.resolve())
             for parent in [start_dir] + list(start_dir.parents):
                 if (parent / "malloy-config.json").exists():
-                    return str(parent)
-            return str(start_dir)
+                    return str(parent.resolve())
+            return str(start_dir.resolve())
         return None
 
     def parse_ast(self, file_path: Union[str, Path]) -> dict:
@@ -154,12 +151,13 @@ class MalloyCliClient:
         """
         abs_file_path = str(Path(file_path).resolve())
         cmd = self._build_base_cmd("compile")
-        cmd.extend(["--json", abs_file_path])
 
         if query_name:
             cmd.extend(["--name", query_name])
         elif query_index is not None:
             cmd.extend(["--index", str(query_index)])
+
+        cmd.append(abs_file_path)
 
         cwd = self._get_cwd(file_path)
         proc = subprocess.run(
@@ -175,6 +173,9 @@ class MalloyCliClient:
             raise MalloyCliError(f"malloy-cli compile failed (code {proc.returncode}):\n{formatted_err}")
 
         raw_output = proc.stdout.strip()
+        if raw_output.startswith("Compiled SQL:"):
+            raw_output = raw_output[len("Compiled SQL:") :].strip()
+
         try:
             parsed = json.loads(raw_output)
             if isinstance(parsed, dict):
@@ -204,18 +205,20 @@ class MalloyCliClient:
         """
         abs_file_path = str(Path(file_path).resolve())
         cmd = self._build_base_cmd("run")
-        cmd.extend(["--json", abs_file_path])
+        cmd.append("--json")
 
         if query_name:
             cmd.extend(["--name", query_name])
         elif query_index is not None:
             cmd.extend(["--index", str(query_index)])
 
-        if raw_query:
-            cmd.append(raw_query)
-
         if row_limit is not None:
             cmd.extend(["--row-limit", str(row_limit)])
+
+        cmd.append(abs_file_path)
+
+        if raw_query:
+            cmd.append(raw_query)
 
         cwd = self._get_cwd(file_path)
         proc = subprocess.run(

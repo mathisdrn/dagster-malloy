@@ -1,17 +1,16 @@
 """Dagster definitions for Malloy demo project."""
 
 from pathlib import Path
-
+import duckdb
 import polars as pl
 from dagster import AssetKey, Definitions, MaterializeResult, asset
 
 from dagster_malloy import (
     MalloyResource,
-    build_malloy_asset_checks,
     load_malloy_assets,
 )
 
-project_dir = Path(__file__).parent
+project_dir = Path(__file__).parent.resolve()
 models_dir = project_dir / "models"
 data_dir = project_dir / "data"
 
@@ -154,50 +153,68 @@ def raw_orders_ingestion() -> MaterializeResult:
     return MaterializeResult(metadata={"row_count": len(df), "path": str(parquet_path)})
 
 
-# Automatically load Malloy assets, semantic sources, & dashboard nodes
-malloy_assets = load_malloy_assets(
-    path=models_dir, create_dashboards=True, include_sources=True
+# DuckDB Warehouse Connection Resource for export database
+class DuckDBWarehouseResource:
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+
+    def get_connection(self):
+        self.db_path.parent.mkdir(exist_ok=True)
+        return duckdb.connect(str(self.db_path))
+
+
+duckdb_resource = DuckDBWarehouseResource(data_dir / "export.duckdb")
+
+# Warehouse Table Assets (Materializes CTAS tables directly in data/export.duckdb)
+malloy_table_assets = load_malloy_assets(
+    path=models_dir,
+    name="malloy_warehouse_tables",
+    execution_mode="warehouse",
+    materialization_mode="table",
+    db_resource_key="duckdb",
+    create_dashboards=True,
+    include_sources=False,
 )
 
-# Downstream Python Asset consuming data produced by Malloy asset
-
-
+# Downstream Python Asset consuming materialized DuckDB table
 @asset(
     deps=[AssetKey(["sales", "customer_analytics"])],
     group_name="export",
-    description="Downstream Python asset that consumes Malloy-computed customer analytics data.",
+    description="Downstream Python asset that consumes Malloy-computed customer analytics table from DuckDB export.",
 )
 def vip_customer_digest() -> MaterializeResult:
-    df = pl.read_parquet(data_dir / "orders.parquet")
-    vip_count = df.filter(pl.col("price") > 500).height
+    conn = duckdb.connect(str(data_dir / "export.duckdb"))
+    try:
+        rows = conn.execute("SELECT * FROM customer_analytics WHERE total_spent > 500").fetchall()
+        vip_count = len(rows)
+    except Exception:
+        # Fallback if table not materialized yet
+        raw_df = pl.read_parquet(data_dir / "orders.parquet")
+        vip_count = len(raw_df.filter(pl.col("price") > 500))
+    finally:
+        conn.close()
+
     return MaterializeResult(
         metadata={
             "vip_count": vip_count,
-            "status": "VIP Customer Digest generated",
+            "status": "VIP Customer Digest generated from DuckDB warehouse export",
         }
     )
 
-
-# Build asset checks from Malloy test queries
-cust_analytics_key = AssetKey(["sales", "customer_analytics"])
-malloy_checks = build_malloy_asset_checks(
-    file_path=models_dir / "sales.malloy",
-    target_asset_key=cust_analytics_key,
-)
 
 defs = Definitions(
     assets=[
         raw_customers_ingestion,
         raw_products_ingestion,
         raw_orders_ingestion,
-        malloy_assets,
+        malloy_table_assets,
         vip_customer_digest,
     ],
-    asset_checks=malloy_checks,
     resources={
         "malloy": MalloyResource(
-            execution_mode="auto",
-            home_dir=str(project_dir),
+            execution_mode="warehouse",
+            project_dir=str(project_dir),
         ),
+        "duckdb": duckdb_resource,
     },
 )

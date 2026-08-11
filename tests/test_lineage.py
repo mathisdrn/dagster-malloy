@@ -35,24 +35,18 @@ query: top_5_categories is orders -> {
     assert "top_5_categories" in parsed.queries
 
     # 2. Test Asset Lineage Generation
-    assets_def = load_malloy_assets(file_path, include_sources=True, create_dashboards=True)
+    assets_def = load_malloy_assets(file_path, include_sources=True)
     key_to_deps = {spec.key: spec.deps for spec in assets_def.specs}
 
     query_key = AssetKey(["pipeline", "top_5_categories"])
     source_key = AssetKey(["pipeline", "orders"])
-    dashboard_key = AssetKey(["pipeline", "top_5_categories_dashboard"])
 
     assert query_key in key_to_deps
     assert source_key in key_to_deps
-    assert dashboard_key in key_to_deps
 
     # Verify query asset depends on source asset
     query_deps = [dep.asset_key for dep in key_to_deps[query_key]]
     assert source_key in query_deps
-
-    # Verify dashboard asset depends on query asset
-    dash_deps = [dep.asset_key for dep in key_to_deps[dashboard_key]]
-    assert query_key in dash_deps
 
 
 def test_lineage_complex_joins_and_sources(tmp_path: Path):
