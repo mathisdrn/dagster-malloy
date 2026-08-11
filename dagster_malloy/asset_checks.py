@@ -11,7 +11,7 @@ from dagster import (
     asset_check,
 )
 
-import polars as pl
+from dagster_malloy._compat import HAS_POLARS, pl
 
 from dagster_malloy.parser import MalloyParser
 from dagster_malloy.project import MalloyProject
@@ -171,7 +171,7 @@ def build_malloy_asset_checks(
                     row_count = 0
                     first_row = {}
 
-                    if isinstance(res_data, pl.DataFrame):
+                    if HAS_POLARS and isinstance(res_data, pl.DataFrame):
                         row_count = len(res_data)
                         if not res_data.is_empty():
                             first_row = res_data.row(0, named=True)

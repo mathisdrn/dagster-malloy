@@ -13,7 +13,7 @@ from dagster_malloy.project import MalloyProject
 from dagster_malloy.resource import MalloyResource
 from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 
 __all__ = [
     "MalloyCliClient",

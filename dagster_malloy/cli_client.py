@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, List, Optional, Tuple, Union
 
-import polars as pl
+from dagster_malloy._compat import require_polars
 
 
 class MalloyCliError(Exception):
@@ -234,6 +234,7 @@ class MalloyCliClient:
             raise MalloyCliError(f"malloy-cli run failed (code {proc.returncode}):\n{formatted_err}")
 
         raw_output = proc.stdout.strip()
+        pl = require_polars("malloy-cli query execution")
         if not raw_output:
             return pl.DataFrame()
 

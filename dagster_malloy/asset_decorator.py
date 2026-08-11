@@ -19,7 +19,7 @@ from dagster import (
     multi_asset,
 )
 
-import polars as pl
+from dagster_malloy._compat import HAS_POLARS, pl
 
 from dagster_malloy.parser import MalloyParser
 from dagster_malloy.project import MalloyProject
@@ -40,7 +40,7 @@ def _get_project_root(path_val: Path) -> Path:
 def _dataset_to_table_schema(data: Any) -> TableSchema:
     """Converts a polars DataFrame or list of dicts into a Dagster TableSchema."""
     columns = []
-    if isinstance(data, pl.DataFrame):
+    if HAS_POLARS and isinstance(data, pl.DataFrame):
         for col_name, dtype in data.schema.items():
             columns.append(
                 TableColumn(
@@ -64,7 +64,7 @@ def _dataset_to_table_schema(data: Any) -> TableSchema:
 
 def _dataset_to_markdown_preview(data: Any, max_rows: int = 10) -> str:
     """Renders a polars DataFrame or list of dicts as a Markdown preview table."""
-    if isinstance(data, pl.DataFrame):
+    if HAS_POLARS and isinstance(data, pl.DataFrame):
         data = data.head(max_rows).to_dicts()
 
     if isinstance(data, list) and len(data) > 0:
@@ -488,7 +488,7 @@ def load_malloy_assets(
 
                         row_count = _get_row_count(res_chk)
                         first_row = {}
-                        if isinstance(res_chk, pl.DataFrame):
+                        if HAS_POLARS and isinstance(res_chk, pl.DataFrame):
                             if not res_chk.is_empty():
                                 first_row = res_chk.row(0, named=True)
                         elif isinstance(res_chk, list) and len(res_chk) > 0:
