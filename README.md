@@ -37,11 +37,7 @@ uv add dagster-malloy
 
 
 
-To enable the in-process Python SDK backend:
 
-```bash
-uv add "dagster-malloy[python-backend]"
-```
 
 ## Usage
 
@@ -54,35 +50,62 @@ from pathlib import Path
 from dagster import Definitions
 from dagster_malloy import load_malloy_assets, MalloyResource
 
-malloy_assets = load_malloy_assets(path=Path(__file__).parent / "models")
+# Loads Malloy assets using pre-compiled manifest (if present) or dynamic Node.js parsing
+malloy_assets = load_malloy_assets(
+    path=Path(__file__).parent / "models",
+    use_manifest_if_exists=True,  # Default: True
+)
 
 defs = Definitions(
     assets=[malloy_assets],
     resources={
         "malloy": MalloyResource(
-            execution_mode="auto",  # 'cli' (default), 'python', or 'auto'
+            cli_path="npx malloy-cli",
         ),
     },
 )
 ```
 
-### 2. Execution engines
+### 2. AST Manifests & Serverless / Python-Only Deployments
 
-`dagster-malloy` supports two execution backends via `MalloyResource`:
+In production or serverless environments (Cloud Run, ECS, Kubernetes), you can eliminate **100% of the Node.js runtime dependency** for loading Dagster asset definitions by pre-compiling an AST manifest during CI/CD or Docker build.
 
-1. **`cli`** (Default / Recommended): Executes compilation and query execution using `malloy-cli` / `npx malloy-cli`.
-2. **`python`**: Executes queries in-process using the `malloy` Python SDK (`malloy.Runtime`).
-3. **`auto`**: Selects `cli` if `malloy-cli` or `npx` is on `$PATH`, otherwise falls back to `python`.
+#### Building the Manifest (CI/CD / Dockerfile):
+
+Use the `dagster-malloy build-manifest` CLI command:
+
+```bash
+# Pre-compile Malloy AST metadata into analytics/malloy_manifest.json
+dagster-malloy build-manifest analytics/ --output analytics/malloy_manifest.json
+```
+
+#### Loading Pre-compiled Manifests:
+
+When `malloy_manifest.json` exists alongside your models (or when `manifest_path` is explicitly passed to `load_malloy_assets`), `dagster-malloy` loads asset definitions in **pure Python (< 1ms)** without calling Node.js.
 
 ```python
-resource = MalloyResource(
-    execution_mode="cli",
-    cli_path="npx malloy-cli",  # Custom CLI executable path
-    config_path="path/to/malloy-config.json",
+malloy_assets = load_malloy_assets(
+    path=PROJECT_ROOT / "analytics",
+    manifest_path=PROJECT_ROOT / "analytics" / "malloy_manifest.json",  # Optional explicit path
+    use_manifest_if_exists=True,  # Default: True
 )
 ```
 
-### 3. Custom translator (`MalloyTranslator`)
+If Node.js is missing from `$PATH` and no manifest is available, `dagster-malloy` raises an explicit `MalloyEnvironmentError` with actionable instructions.
+
+### 3. Execution configuration
+
+`dagster-malloy` compiles and executes queries using `malloy-cli` / `npx malloy-cli` via `MalloyResource`:
+
+```python
+resource = MalloyResource(
+    cli_path="npx malloy-cli",  # Optional custom executable or path
+    config_path="path/to/malloy-config.json",  # Optional path to database connections config
+    project_dir="path/to/project",  # Optional project root for relative file paths
+)
+```
+
+### 4. Custom translator (`MalloyTranslator`)
 
 Subclass `MalloyTranslator` to customize asset keys, tags, group names, metadata, or upstream dependencies:
 
@@ -105,7 +128,7 @@ malloy_assets = load_malloy_assets(
 )
 ```
 
-### 4. Data quality checks
+### 5. Data quality checks
 
 Use `build_malloy_asset_checks` to discover check queries in a `.malloy` file and register them as Dagster `AssetCheckResult` checks attached to a target asset:
 

@@ -106,6 +106,12 @@ function parseMalloyAST(filePath) {
   const importedFiles = new Set();
   const tableDeps = new Set();
 
+const VALID_DIALECTS = new Set([
+  'duckdb', 'postgres', 'bigquery', 'snowflake', 'motherduck',
+  'mysql', 'trino', 'presto', 'sqlite'
+]);
+const DEFAULT_DIALECT = 'duckdb';
+
   // Loop to resolve imports, dialects, and table schemas
   for (let i = 0; i < 10; i++) {
     const res = t.importsAndTablesStep.step(t);
@@ -137,8 +143,9 @@ function parseMalloyAST(filePath) {
     }
 
     if (res.connectionDialects) {
-      for (const dialectName of Object.keys(res.connectionDialects)) {
-        t.connectionDialectZone.define(dialectName, dialectName);
+      for (const [connName, dialect] of Object.entries(res.connectionDialects)) {
+        const resolvedDialect = (dialect && VALID_DIALECTS.has(dialect)) ? dialect : DEFAULT_DIALECT;
+        t.connectionDialectZone.define(connName, resolvedDialect);
       }
     }
 
@@ -152,9 +159,13 @@ function parseMalloyAST(filePath) {
           }
           tableDeps.add(rawTable);
         }
+        const connName = tableInfo.connectionName || 'duckdb';
+        const dialect = (tableInfo.dialect && VALID_DIALECTS.has(tableInfo.dialect))
+          ? tableInfo.dialect
+          : (VALID_DIALECTS.has(connName) ? connName : DEFAULT_DIALECT);
         t.schemaZone.define(tableKey, {
-          dialect: tableInfo.connectionName || 'duckdb',
-          structRelationship: { type: 'basetable', connectionName: tableInfo.connectionName || 'duckdb' },
+          dialect: dialect,
+          structRelationship: { type: 'basetable', connectionName: connName },
           fields: []
         });
       }

@@ -14,6 +14,10 @@ class MalloyCliError(Exception):
     """Raised when malloy-cli execution fails."""
 
 
+class MalloyEnvironmentError(Exception):
+    """Raised when required runtime environment tools like Node.js are missing."""
+
+
 def _format_cli_error(raw_output: str) -> str:
     """Parses JSON error structures from malloy-cli and formats them into a clean error string."""
     raw_str = (raw_output or "").strip()
@@ -102,6 +106,13 @@ class MalloyCliClient:
 
     def parse_ast(self, file_path: Union[str, Path]) -> dict:
         """Parse a Malloy file using official @malloydata/malloy AST compiler script."""
+        if not shutil.which("node"):
+            raise MalloyEnvironmentError(
+                f"Node.js was not found in PATH to parse '{file_path}'. "
+                f"For Python-only / serverless environments, pre-compile your AST manifest at build time "
+                f"using 'dagster-malloy build-manifest <path>' or pass a valid 'manifest_path'."
+            )
+
         abs_file_path = str(Path(file_path).resolve())
         js_script = Path(__file__).parent / "js" / "parse_malloy_ast.js"
 

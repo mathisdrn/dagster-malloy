@@ -143,3 +143,71 @@ class MalloyParser:
         parsed.imports = data.get("imports", [])
         parsed.table_dependencies = set(data.get("table_dependencies", []))
         return parsed
+
+    @classmethod
+    def build_manifest(
+        cls,
+        target_path: Union[str, Path],
+        output_path: Optional[Union[str, Path]] = None,
+        cli_client: Optional[MalloyCliClient] = None,
+    ) -> Path:
+        """Compile AST metadata for all .malloy/.malloynb files in target_path into a JSON manifest."""
+        import json
+
+        path_obj = Path(target_path).resolve()
+        if not path_obj.exists():
+            raise FileNotFoundError(f"Path does not exist: {path_obj}")
+
+        if path_obj.is_file():
+            malloy_files = [path_obj]
+            base_dir = path_obj.parent
+        else:
+            malloy_files = list(path_obj.glob("**/*.malloy")) + list(path_obj.glob("**/*.malloynb"))
+            base_dir = path_obj
+
+        if not malloy_files:
+            raise ValueError(f"No .malloy or .malloynb files found in path: {path_obj}")
+
+        client = cli_client or MalloyCliClient()
+        manifest_models = {}
+
+        for file in malloy_files:
+            ast_data = client.parse_ast(file)
+            rel_path = str(file.relative_to(base_dir))
+            abs_path = str(file.resolve())
+            filename = file.name
+
+            manifest_models[rel_path] = ast_data
+            manifest_models[abs_path] = ast_data
+            manifest_models[filename] = ast_data
+
+        manifest_data = {
+            "version": "1.0",
+            "models": manifest_models,
+        }
+
+        if output_path:
+            out_file = Path(output_path).resolve()
+        else:
+            if path_obj.is_dir():
+                out_file = path_obj / "malloy_manifest.json"
+            else:
+                out_file = path_obj.parent / "malloy_manifest.json"
+
+        out_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump(manifest_data, f, indent=2)
+
+        return out_file
+
+    @classmethod
+    def load_manifest(cls, manifest_path: Union[str, Path]) -> dict:
+        """Load an AST manifest JSON file."""
+        import json
+
+        p = Path(manifest_path).resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"Manifest file not found: {p}")
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+

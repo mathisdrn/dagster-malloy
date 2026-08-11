@@ -86,6 +86,8 @@ def load_malloy_assets(
     create_dashboards: bool = True,
     include_sources: bool = True,
     can_subset: bool = True,
+    manifest_path: Optional[Union[str, Path]] = None,
+    use_manifest_if_exists: bool = True,
 ) -> AssetsDefinition:
     """Loads Malloy queries and models from a file or directory as Dagster Software-Defined Assets."""
     path_obj = Path(path).resolve()
@@ -103,11 +105,52 @@ def load_malloy_assets(
     translator = translator or MalloyTranslator()
     parser = MalloyParser()
 
+    # Determine manifest loading
+    manifest_dict = None
+    if manifest_path:
+        m_file = Path(manifest_path).resolve()
+        if not m_file.exists():
+            raise FileNotFoundError(f"Manifest file not found: {m_file}")
+        manifest_dict = parser.load_manifest(m_file)
+    elif use_manifest_if_exists:
+        if path_obj.is_dir():
+            candidate = path_obj / "malloy_manifest.json"
+            if candidate.exists():
+                manifest_dict = parser.load_manifest(candidate)
+        else:
+            candidates = [
+                path_obj.parent / "malloy_manifest.json",
+                path_obj.with_suffix(".malloy.json"),
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    manifest_dict = parser.load_manifest(candidate)
+                    break
+
+    models_map = manifest_dict.get("models", manifest_dict) if manifest_dict else None
+
     specs: List[AssetSpec] = []
     asset_query_map: Dict[AssetKey, Dict[str, Any]] = {}
 
     for file in malloy_files:
-        parsed_model = parser.parse_file(file)
+        parsed_model = None
+        if models_map:
+            ast_data = None
+            keys_to_try = [str(file.resolve()), file.name, str(file)]
+            if path_obj.is_dir():
+                try:
+                    keys_to_try.insert(0, str(file.relative_to(path_obj)))
+                except ValueError:
+                    pass
+            for k in keys_to_try:
+                if k in models_map:
+                    ast_data = models_map[k]
+                    break
+            if ast_data:
+                parsed_model = parser.from_ast_dict(ast_data, file_path=file)
+
+        if parsed_model is None:
+            parsed_model = parser.parse_file(file)
 
         # 1. Register Source Semantic Model Specs if requested
         if include_sources:
@@ -295,6 +338,8 @@ def malloy_assets(
     create_dashboards: bool = True,
     include_sources: bool = True,
     can_subset: bool = True,
+    manifest_path: Optional[Union[str, Path]] = None,
+    use_manifest_if_exists: bool = True,
 ) -> Callable:
     """Decorator version of load_malloy_assets."""
     def decorator(fn: Callable) -> AssetsDefinition:
@@ -304,6 +349,8 @@ def malloy_assets(
             create_dashboards=create_dashboards,
             include_sources=include_sources,
             can_subset=can_subset,
+            manifest_path=manifest_path,
+            use_manifest_if_exists=use_manifest_if_exists,
         )
 
     return decorator
