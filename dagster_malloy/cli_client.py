@@ -100,6 +100,36 @@ class MalloyCliClient:
             return str(start_dir)
         return None
 
+    def parse_ast(self, file_path: Union[str, Path]) -> dict:
+        """Parse a Malloy file using official @malloydata/malloy AST compiler script."""
+        abs_file_path = str(Path(file_path).resolve())
+        js_script = Path(__file__).parent / "js" / "parse_malloy_ast.js"
+
+        if not js_script.exists():
+            raise FileNotFoundError(f"AST parser JS script missing at {js_script}")
+
+        cmd = ["node", str(js_script), abs_file_path]
+        cwd = self._get_cwd(file_path)
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=cwd,
+        )
+
+        if proc.returncode != 0:
+            formatted_err = _format_cli_error(proc.stderr or proc.stdout)
+            raise MalloyCliError(f"Malloy AST compilation failed (code {proc.returncode}):\n{formatted_err}")
+
+        raw_output = proc.stdout.strip()
+        try:
+            return json.loads(raw_output)
+        except json.JSONDecodeError as e:
+            raise MalloyCliError(f"Failed to parse Malloy AST JSON response:\n{raw_output}") from e
+
+
     def compile(
         self,
         file_path: Union[str, Path],

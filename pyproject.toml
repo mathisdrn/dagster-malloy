@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dagster-malloy"
-version = "0.1.8"
+version = "0.1.9"
 description = "Unofficial Dagster integration for Malloy models and notebooks"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -31,21 +31,17 @@ dev = [
     "dagster-dg-cli>=1.12.0",
     "dagster-webserver>=1.6.0",
 ]
-python-backend = [
-    "malloy>=2024.1000",
-]
 test = [
     "pytest>=7.0.0",
     "duckdb>=0.9.0",
     "polars>=0.20.0",
-    "malloy>=2024.1000",
 ]
 
 [tool.dg]
 directory_type = "project"
 
 [tool.dg.project]
-root_module = "dagster_malloy"
+root_module = "dagster_malloy_demo"
 
 [tool.hatch.build.targets.wheel]
 packages = ["dagster_malloy", "dagster_malloy_demo"]
@@ -53,7 +49,7 @@ include = [
     "dagster_malloy_demo/models/*.malloy",
     "dagster_malloy_demo/definitions.py",
     "dagster_malloy_demo/generate_data.py",
-    "dagster_malloy_demo/asset_lineage.svg",
+    "dagster_malloy_demo/asset_lineage.png",
 ]
 
 [tool.pytest.ini_options]

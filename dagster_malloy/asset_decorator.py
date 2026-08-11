@@ -147,7 +147,7 @@ def load_malloy_assets(
             # Create downstream dashboard asset node if requested
             if create_dashboards and (q_info.is_dashboard or "dashboard" in q_info.tags):
                 dash_key = AssetKey([query_spec.key.path[0], f"{q_name}_dashboard"])
-                dash_kinds = {"dashboard"}
+                dash_kinds = {"dashboard", "malloy"}
                 if query_spec.kinds:
                     for k in query_spec.kinds:
                         if k not in {"query", "sql", "malloy", "semantic_model", "🔍 query", "🔍  query", "⚙️ Query"}:

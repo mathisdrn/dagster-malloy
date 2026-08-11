@@ -2,7 +2,7 @@
 
 Demo project for [`dagster-malloy`](https://github.com/mathisdrn/dagster-malloy) — an e-commerce analytics pipeline built with Malloy models and Dagster assets.
 
-![Dagster Asset Lineage Graph](asset_lineage.svg)
+![Dagster Asset Lineage Graph](asset_lineage.png)
 
 ## Project Structure
 
@@ -13,7 +13,7 @@ dagster_malloy_demo/
 ├── definitions.py         # Dagster definitions entrypoint
 ├── generate_data.py       # Script to generate sample Parquet datasets
 ├── cli.py                 # Demo launcher (dagster-malloy-demo entrypoint)
-└── asset_lineage.svg      # Lineage diagram preview
+└── asset_lineage.png      # Lineage diagram preview
 ```
 
 ## Quickstart

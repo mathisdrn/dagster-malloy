@@ -1,6 +1,7 @@
 """CLI entrypoint for dagster-malloy providing demo launcher commands."""
 
 import argparse
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -112,6 +113,12 @@ def run_demo():
 
     dg_bin = shutil.which("dg") or "dg"
 
+    env = os.environ.copy()
+    if "DAGSTER_HOME" not in env:
+        dagster_home = demo_dir / ".dagster_home"
+        dagster_home.mkdir(exist_ok=True)
+        env["DAGSTER_HOME"] = str(dagster_home)
+
     try:
         subprocess.run(
             [
@@ -125,6 +132,7 @@ def run_demo():
                 args.host,
             ],
             cwd=str(demo_dir),
+            env=env,
             check=True,
         )
     except KeyboardInterrupt:

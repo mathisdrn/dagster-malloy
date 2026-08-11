@@ -71,6 +71,25 @@ class MalloyTranslator:
                     if key not in deps:
                         deps.append(key)
 
+        # Resolve dependencies to nested queries if matching top-level query assets exist
+        nested_query_deps = []
+        if data.query_info and data.query_info.nested_views:
+            for ref_view in data.query_info.nested_views:
+                if ref_view in data.parsed_model.queries:
+                    ref_q_info = data.parsed_model.queries[ref_view]
+                    ref_data = MalloyTranslatorData(
+                        query_info=ref_q_info,
+                        parsed_model=data.parsed_model,
+                        file_path=data.file_path,
+                    )
+                    ref_key = self.get_asset_key(ref_data)
+                    self_key = self.get_asset_key(data)
+                    if ref_key not in nested_query_deps and ref_key != self_key:
+                        nested_query_deps.append(ref_key)
+
+        if nested_query_deps:
+            return nested_query_deps
+
         return deps
 
     def get_description(self, data: MalloyTranslatorData) -> Optional[str]:
@@ -85,12 +104,7 @@ class MalloyTranslator:
 
     def get_kinds(self, data: MalloyTranslatorData) -> Set[str]:
         """Computes the kind badges (e.g. 'malloy', 'duckdb', 'dashboard') for the asset UI."""
-        kinds = {"malloy"}
-
-        if data.query_info.is_dashboard:
-            kinds.add("dashboard")
-        else:
-            kinds.add("⚙️ Query")
+        kinds = {"malloy", "⚙️ Query"}
 
         dialect = data.dialect
         if not dialect and data.query_info.source_name:

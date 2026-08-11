@@ -95,3 +95,25 @@ def test_source_extension_lineage():
 
     assert [dep.asset_key for dep in spec_base.deps] == [AssetKey("comments")]
     assert [dep.asset_key for dep in spec_ext.deps] == [AssetKey(["comments", "comments_base"])]
+
+
+def test_translator_dashboard_kinds():
+    file_path = Path("analytics/sales.malloy")
+    q_info = MalloyQueryInfo(
+        name="dashboard_query",
+        source_name="orders",
+        is_dashboard=True,
+    )
+    parsed = MalloyParsedModel(file_path=file_path)
+    trans_data = MalloyTranslatorData(
+        query_info=q_info,
+        parsed_model=parsed,
+        file_path=file_path,
+        dialect="duckdb",
+    )
+
+    translator = MalloyTranslator()
+    spec = translator.get_asset_spec(trans_data)
+
+    assert spec.kinds == {"⚙️ Query", "malloy", "duckdb"}
+

@@ -12,23 +12,42 @@ source: orders is duckdb.table('data/orders.parquet') extend {
   join_one: customers on customer_id = customers.id
   join_one: products on product_id = products.id
 
+  # Reusable View 1: Customer Performance
   view: customer_performance is {
     group_by: customers.name, customers.segment, customers.state
     aggregate:
       total_orders is count()
       total_spent is sum(price * quantity)
   }
+
+  # Reusable View 2: Category Breakdown
+  view: category_performance is {
+    group_by: products.category, customers.segment
+    aggregate: gross_revenue is sum(price * quantity)
+  }
+
+  # Reusable View 3: Daily Sales Trend
+  view: daily_sales_trend is {
+    group_by: order_date
+    aggregate: gross_revenue is sum(price * quantity)
+  }
 }
 
-# Customer Analytics Data Asset
+# Customer Analytics Query Asset
 query: customer_analytics is orders -> customer_performance
 
-# Executive Sales Dashboard Asset
+# Executive Sales Dashboard Query Asset
 # @dashboard
-# @bar_chart
-query: executive_sales_dashboard is orders -> {
-  group_by: products.category, customers.segment
-  aggregate: gross_revenue is sum(price * quantity)
+query: executive_sales is orders -> {
+  aggregate:
+    total_revenue is sum(price * quantity)
+    total_orders is count()
+
+  # @bar_chart
+  nest: category_performance
+
+  # @line_chart
+  nest: daily_sales_trend
 }
 
 # Data Quality Check: Verify Customer IDs are non-null

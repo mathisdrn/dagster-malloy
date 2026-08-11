@@ -17,7 +17,7 @@
     }
     ```
 
-![Dagster Asset Lineage Graph](dagster_malloy_demo/asset_lineage.svg)
+![Dagster Asset Lineage Graph](dagster_malloy_demo/asset_lineage.png)
 
 ## Quickstart
 

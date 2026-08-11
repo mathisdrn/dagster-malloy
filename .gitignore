@@ -29,3 +29,6 @@ htmlcov/
 # Demo generated data files
 **/data/*.parquet
 .DS_Store
+
+# Generated demo projects
+malloy_demo/

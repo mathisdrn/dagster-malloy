@@ -1,10 +1,11 @@
-"""AST and regex parser for Malloy (.malloy) models and (.malloynb) notebooks."""
+"""AST parser for Malloy (.malloy) models and (.malloynb) notebooks using official @malloydata/malloy compiler."""
 
-import json
-import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar, Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Union
+
+from dagster_malloy.cli_client import MalloyCliClient
 
 
 @dataclass
@@ -35,6 +36,7 @@ class MalloyQueryInfo:
     is_notebook_cell: bool = False
     cell_index: Optional[int] = None
     tags: List[str] = field(default_factory=list)
+    nested_views: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -49,275 +51,95 @@ class MalloyParsedModel:
 
 
 class MalloyParser:
-    """Parses Malloy files (.malloy) and Malloy notebooks (.malloynb)."""
-
-    # Regex patterns for parsing Malloy construct declarations
-    SOURCE_PATTERN = re.compile(
-        r"source\s*:\s*([a-zA-Z0-9_]+)\s+is\s+([a-zA-Z0-9_\.]+)\s*\(\s*['\"]([^'\"]+)['\"]",
-        re.IGNORECASE,
-    )
-    SOURCE_SIMPLE_PATTERN = re.compile(
-        r"source\s*:\s*([a-zA-Z0-9_]+)\s+is\s+([a-zA-Z0-9_]+)",
-        re.IGNORECASE,
-    )
-    VIEW_PATTERN = re.compile(
-        r"view\s*:\s*([a-zA-Z0-9_]+)\s+is",
-        re.IGNORECASE,
-    )
-    QUERY_PATTERN = re.compile(
-        r"query\s*:\s*([a-zA-Z0-9_]+)\s+is\s+([a-zA-Z0-9_]+)(?:\s*->\s*(.*))?",
-        re.IGNORECASE,
-    )
-    RUN_PATTERN = re.compile(
-        r"run\s*:\s*([a-zA-Z0-9_]+)\s*->\s*([a-zA-Z0-9_]+|\{[^}]*\})",
-        re.IGNORECASE,
-    )
-    IMPORT_PATTERN = re.compile(
-        r"import\s+['\"]([^'\"]+)['\"]",
-        re.IGNORECASE,
-    )
-    ANNOTATION_PATTERN = re.compile(
-        r"#\s*@([a-zA-Z0-9_-]+)(?:\s+(.*))?",
-    )
-    CHECK_PATTERN = re.compile(
-        r"(?:check_|test_|assert_)([a-zA-Z0-9_]+)",
-        re.IGNORECASE,
-    )
-    JOIN_PATTERN = re.compile(
-        r"join_(?:one|many|cross)\s*:\s*([a-zA-Z0-9_]+)",
-        re.IGNORECASE,
-    )
-    DASHBOARD_TAGS: ClassVar[set[str]] = {
-        "dashboard",
-        "bar_chart",
-        "line_chart",
-        "scatter_chart",
-        "shape_map",
-        "segment_map",
-        "render",
-        "report",
-        "viz",
-    }
+    """Parses Malloy files (.malloy) and Malloy notebooks (.malloynb) via official AST compiler."""
 
     @classmethod
-    def _extract_multiline_block(cls, lines: List[str], start_idx: int) -> Tuple[str, int]:
-        """Extracts a single-line or multi-line Malloy declaration, balancing braces if needed."""
-        block_lines = [lines[start_idx]]
-        first_line = lines[start_idx]
-
-        open_braces = first_line.count("{")
-        close_braces = first_line.count("}")
-        brace_depth = open_braces - close_braces
-
-        idx = start_idx + 1
-        while brace_depth > 0 and idx < len(lines):
-            next_line = lines[idx]
-            block_lines.append(next_line)
-            brace_depth += next_line.count("{") - next_line.count("}")
-            idx += 1
-
-        return "\n".join(block_lines).rstrip(), len(block_lines)
-
-    @classmethod
-    def parse_file(cls, file_path: Union[str, Path]) -> MalloyParsedModel:
-        """Parse a .malloy or .malloynb file into a MalloyParsedModel."""
+    def parse_file(
+        cls, file_path: Union[str, Path], cli_client: Optional[MalloyCliClient] = None
+    ) -> MalloyParsedModel:
+        """Parse a .malloy or .malloynb file into a MalloyParsedModel using official AST compiler."""
         path = Path(file_path).resolve()
         if not path.exists():
             raise FileNotFoundError(f"File not found: {path}")
 
-        if path.suffix == ".malloynb":
-            return cls.parse_notebook(path)
-
-        code = path.read_text(encoding="utf-8")
-        return cls.parse_malloy_code(code, file_path=path)
+        client = cli_client or MalloyCliClient()
+        ast_data = client.parse_ast(path)
+        return cls.from_ast_dict(ast_data, file_path=path)
 
     @classmethod
     def parse_malloy_code(
-        cls, code: str, file_path: Optional[Path] = None
+        cls,
+        code: str,
+        file_path: Optional[Path] = None,
+        cli_client: Optional[MalloyCliClient] = None,
     ) -> MalloyParsedModel:
-        """Parse raw Malloy syntax code."""
-        parsed = MalloyParsedModel(file_path=file_path or Path("inline.malloy"))
-        lines = code.splitlines()
+        """Parse raw Malloy syntax code using official AST compiler."""
+        path = file_path or Path("inline.malloy")
+        suffix = path.suffix if path.suffix in [".malloy", ".malloynb"] else ".malloy"
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix, mode="w", encoding="utf-8", delete=False
+        ) as tmp:
+            tmp.write(code)
+            tmp_path = Path(tmp.name)
 
-        current_description: List[str] = []
-        current_tags: List[str] = []
-        in_check_mode = False
-        in_dashboard_mode = False
-
-        # Extract imports
-        for match in cls.IMPORT_PATTERN.finditer(code):
-            parsed.imports.append(match.group(1))
-
-        # Extract sources and queries with multiline brace matching
-        i = 0
-        while i < len(lines):
-            line_idx = i + 1
-            line = lines[i]
-            line_str = line.strip()
-
-            # Comment / annotation parsing
-            if line_str.startswith("#"):
-                ann_match = cls.ANNOTATION_PATTERN.match(line_str)
-                if ann_match:
-                    tag_name = ann_match.group(1).lower()
-                    current_tags.append(tag_name)
-                    if tag_name in ["check", "test", "assert"]:
-                        in_check_mode = True
-                    if tag_name in cls.DASHBOARD_TAGS:
-                        in_dashboard_mode = True
-                else:
-                    comment_text = line_str.lstrip("#").strip()
-                    if comment_text:
-                        current_description.append(comment_text)
-                i += 1
-                continue
-
-            # Source definition: source: foo is orca.table('file.parquet')
-            source_match = cls.SOURCE_PATTERN.search(line_str)
-            if source_match:
-                source_name = source_match.group(1)
-                conn_raw = source_match.group(2)
-                conn = conn_raw.split(".")[0] if "." in conn_raw else conn_raw
-                table_or_sql = source_match.group(3)
-                raw_block, consumed_count = cls._extract_multiline_block(lines, i)
-                joined = set(cls.JOIN_PATTERN.findall(raw_block))
-
-                parsed.sources[source_name] = MalloySourceInfo(
-                    name=source_name,
-                    connection=conn,
-                    table_or_sql=table_or_sql,
-                    line_number=line_idx,
-                    raw_code=raw_block,
-                    joined_sources=joined,
-                )
-                if table_or_sql:
-                    parsed.table_dependencies.add(table_or_sql)
-                current_description = []
-                current_tags = []
-                in_check_mode = False
-                in_dashboard_mode = False
-                i += consumed_count
-                continue
-
-            # Simple source declaration: source: foo is bar
-            source_simple = cls.SOURCE_SIMPLE_PATTERN.search(line_str)
-            if source_simple and source_simple.group(1) not in parsed.sources:
-                source_name = source_simple.group(1)
-                base_source_name = source_simple.group(2)
-                raw_block, consumed_count = cls._extract_multiline_block(lines, i)
-                joined = set(cls.JOIN_PATTERN.findall(raw_block))
-
-                conn = None
-                table_or_sql = None
-                if base_source_name in parsed.sources:
-                    parent_info = parsed.sources[base_source_name]
-                    conn = parent_info.connection
-                    table_or_sql = parent_info.table_or_sql
-
-                parsed.sources[source_name] = MalloySourceInfo(
-                    name=source_name,
-                    connection=conn,
-                    table_or_sql=table_or_sql,
-                    base_source_name=base_source_name,
-                    line_number=line_idx,
-                    raw_code=raw_block,
-                    joined_sources=joined,
-                )
-                current_description = []
-                current_tags = []
-                in_check_mode = False
-                in_dashboard_mode = False
-                i += consumed_count
-                continue
-
-            # Named query: query: my_query is source -> view
-            query_match = cls.QUERY_PATTERN.search(line_str)
-            if query_match:
-                q_name = query_match.group(1)
-                s_name = query_match.group(2)
-                v_name = query_match.group(3) if query_match.lastindex and query_match.lastindex >= 3 else None
-                raw_block, consumed_count = cls._extract_multiline_block(lines, i)
-
-                is_check = (
-                    in_check_mode
-                    or bool(cls.CHECK_PATTERN.match(q_name))
-                    or "check" in current_tags
-                    or "test" in current_tags
-                )
-
-                is_dashboard = (
-                    in_dashboard_mode
-                    or bool(set(current_tags) & cls.DASHBOARD_TAGS)
-                )
-
-                desc = "\n".join(current_description) if current_description else None
-
-                parsed.queries[q_name] = MalloyQueryInfo(
-                    name=q_name,
-                    source_name=s_name,
-                    view_name=v_name.strip() if v_name else None,
-                    description=desc,
-                    line_number=line_idx,
-                    raw_code=raw_block,
-                    is_check=is_check,
-                    is_dashboard=is_dashboard,
-                    tags=list(current_tags),
-                )
-
-                current_description = []
-                current_tags = []
-                in_check_mode = False
-                in_dashboard_mode = False
-                i += consumed_count
-                continue
-
-            i += 1
-
-        return parsed
+        try:
+            client = cli_client or MalloyCliClient()
+            ast_data = client.parse_ast(tmp_path)
+            return cls.from_ast_dict(ast_data, file_path=path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
 
     @classmethod
-    def parse_notebook(cls, notebook_path: Path) -> MalloyParsedModel:
+    def parse_notebook(
+        cls, notebook_path: Path, cli_client: Optional[MalloyCliClient] = None
+    ) -> MalloyParsedModel:
         """Parse a Malloy notebook (.malloynb JSON format)."""
-        content = notebook_path.read_text(encoding="utf-8")
-        notebook_json = json.loads(content)
+        return cls.parse_file(notebook_path, cli_client=cli_client)
 
-        parsed = MalloyParsedModel(file_path=notebook_path)
+    @classmethod
+    def from_ast_dict(cls, data: dict, file_path: Path) -> MalloyParsedModel:
+        """Construct MalloyParsedModel from AST dictionary returned by parse_malloy_ast.js."""
+        parsed = MalloyParsedModel(file_path=file_path)
 
-        cells = notebook_json.get("cells", [])
-        for cell_idx, cell in enumerate(cells):
-            cell_type = cell.get("cell_type") or cell.get("kind")
-            if cell_type in ["code", 2]:
-                source_lines = cell.get("source", [])
-                source_code = "".join(source_lines) if isinstance(source_lines, list) else str(source_lines)
+        for s_name, s_data in data.get("sources", {}).items():
+            base_name = s_data.get("base_source_name")
+            conn = s_data.get("connection")
+            tbl = s_data.get("table_or_sql")
 
-                cell_parsed = cls.parse_malloy_code(source_code, file_path=notebook_path)
+            if base_name and base_name in parsed.sources:
+                parent_info = parsed.sources[base_name]
+                if not conn:
+                    conn = parent_info.connection
+                if not tbl:
+                    tbl = parent_info.table_or_sql
 
-                # Merge sources
-                parsed.sources.update(cell_parsed.sources)
-                parsed.table_dependencies.update(cell_parsed.table_dependencies)
-                parsed.imports.extend(cell_parsed.imports)
+            parsed.sources[s_name] = MalloySourceInfo(
+                name=s_data.get("name", s_name),
+                connection=conn,
+                table_or_sql=tbl,
+                base_source_name=base_name,
+                line_number=s_data.get("line_number", 1),
+                raw_code=s_data.get("raw_code", ""),
+                joined_sources=set(s_data.get("joined_sources", [])),
+            )
 
-                # Mark query notebook cell metadata
-                for q_name, q_info in cell_parsed.queries.items():
-                    q_info.is_notebook_cell = True
-                    q_info.cell_index = cell_idx
-                    parsed.queries[q_name] = q_info
+        for q_name, q_data in data.get("queries", {}).items():
+            parsed.queries[q_name] = MalloyQueryInfo(
+                name=q_data.get("name", q_name),
+                source_name=q_data.get("source_name"),
+                view_name=q_data.get("view_name"),
+                description=q_data.get("description"),
+                line_number=q_data.get("line_number", 1),
+                raw_code=q_data.get("raw_code", ""),
+                is_check=q_data.get("is_check", False),
+                is_dashboard=q_data.get("is_dashboard", False),
+                is_notebook_cell=q_data.get("is_notebook_cell", False),
+                cell_index=q_data.get("cell_index"),
+                tags=q_data.get("tags", []),
+                nested_views=q_data.get("nested_views", []),
+            )
 
-                # Parse run statements inside notebook cell
-                for line in source_code.splitlines():
-                    run_match = cls.RUN_PATTERN.search(line.strip())
-                    if run_match:
-                        s_name = run_match.group(1)
-                        cell_query_name = f"cell_{cell_idx}_run"
-                        parsed.queries[cell_query_name] = MalloyQueryInfo(
-                            name=cell_query_name,
-                            source_name=s_name,
-                            description=f"Notebook Cell #{cell_idx} execution",
-                            line_number=cell_idx,
-                            raw_code=line.strip(),
-                            is_notebook_cell=True,
-                            cell_index=cell_idx,
-                            is_dashboard=True,
-                        )
-
+        parsed.imports = data.get("imports", [])
+        parsed.table_dependencies = set(data.get("table_dependencies", []))
         return parsed
