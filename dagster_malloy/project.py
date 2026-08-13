@@ -15,6 +15,7 @@ class MalloyProject:
     Attributes:
         path (Union[str, Path]): Path to a `.malloy`/`.malloynb` file or project directory.
         manifest_path (Optional[Union[str, Path]]): Path to `malloy_manifest.json`.
+        manifest_dict (Optional[Dict[str, Any]]): Pre-loaded AST manifest dictionary. Default None.
         project_dir (Optional[Union[str, Path]]): Root project directory.
         use_manifest_if_exists (bool): Whether to use manifest when available. Default True.
         auto_recompile_if_stale (bool): Whether to recompile manifest if stale in dev. Default True.
@@ -22,6 +23,7 @@ class MalloyProject:
 
     path: Union[str, Path]
     manifest_path: Optional[Union[str, Path]] = None
+    manifest_dict: Optional[Dict[str, Any]] = None
     project_dir: Optional[Union[str, Path]] = None
     use_manifest_if_exists: bool = True
     auto_recompile_if_stale: bool = True
@@ -70,6 +72,8 @@ class MalloyProject:
     @property
     def is_stale(self) -> bool:
         """Checks if the manifest file is missing or older than any Malloy source file."""
+        if self.manifest_dict is not None:
+            return False
         m_file = self.manifest_file
         if not m_file.exists():
             return True
@@ -84,6 +88,8 @@ class MalloyProject:
 
     def prepare_if_dev(self) -> Optional[Path]:
         """Compiles or updates the manifest if in development mode and the manifest is stale."""
+        if self.manifest_dict is not None:
+            return None
         if self.auto_recompile_if_stale and shutil.which("node") and self.is_stale:
             try:
                 m_path = self._parser.build_manifest(self.path_obj, output_path=self.manifest_path)
@@ -94,6 +100,8 @@ class MalloyProject:
 
     def load_manifest(self) -> Optional[Dict[str, Any]]:
         """Loads manifest dictionary if available, auto-compiling if stale."""
+        if self.manifest_dict is not None:
+            return self.manifest_dict
         self.prepare_if_dev()
         m_file = self.manifest_file
         if m_file.exists():

@@ -137,6 +137,45 @@ class MalloyCliClient:
         except json.JSONDecodeError as e:
             raise MalloyCliError(f"Failed to parse Malloy AST JSON response:\n{raw_output}") from e
 
+    def parse_ast_batch(self, file_paths: List[Union[str, Path]]) -> dict:
+        """Parse multiple Malloy files or directory paths in a single Node process invocation."""
+        if not shutil.which("node"):
+            raise MalloyEnvironmentError(
+                "Node.js was not found in PATH to parse Malloy ASTs. "
+                "For Python-only / serverless environments, pre-compile your AST manifest at build time "
+                "using 'dagster-malloy build-manifest <path>' or pass a valid 'manifest_path' or 'manifest_dict'."
+            )
+
+        if not file_paths:
+            return {}
+
+        abs_paths = [str(Path(p).resolve()) for p in file_paths]
+        js_script = Path(__file__).parent / "js" / "parse_malloy_ast.js"
+
+        if not js_script.exists():
+            raise FileNotFoundError(f"AST parser JS script missing at {js_script}")
+
+        cmd = ["node", str(js_script), "--batch"] + abs_paths
+        cwd = self._get_cwd(file_paths[0])
+
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=cwd,
+        )
+
+        if proc.returncode != 0:
+            formatted_err = _format_cli_error(proc.stderr or proc.stdout)
+            raise MalloyCliError(f"Malloy batch AST compilation failed (code {proc.returncode}):\n{formatted_err}")
+
+        raw_output = proc.stdout.strip()
+        try:
+            return json.loads(raw_output)
+        except json.JSONDecodeError as e:
+            raise MalloyCliError(f"Failed to parse Malloy batch AST JSON response:\n{raw_output}") from e
+
 
     def compile(
         self,

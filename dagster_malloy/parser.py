@@ -170,11 +170,15 @@ class MalloyParser:
 
         client = cli_client or MalloyCliClient()
         manifest_models = {}
+        batch_results = client.parse_ast_batch(malloy_files)
 
         for file in malloy_files:
-            ast_data = client.parse_ast(file)
-            rel_path = str(file.relative_to(base_dir))
             abs_path = str(file.resolve())
+            ast_data = batch_results.get(abs_path) or batch_results.get(str(file))
+            if not ast_data:
+                ast_data = client.parse_ast(file)
+
+            rel_path = str(file.relative_to(base_dir))
             filename = file.name
 
             manifest_models[rel_path] = ast_data

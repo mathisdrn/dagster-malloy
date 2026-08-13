@@ -14,6 +14,14 @@ function loadMalloy() {
   } catch (e) {}
 
   const candidates = [];
+  let currDir = process.cwd();
+  for (let i = 0; i < 5; i++) {
+    candidates.push(path.join(currDir, 'node_modules', '@malloydata', 'malloy'));
+    const parent = path.dirname(currDir);
+    if (parent === currDir) break;
+    currDir = parent;
+  }
+
   try {
     const globalRoot = execSync('npm root -g', { encoding: 'utf-8' }).trim();
     if (globalRoot) {
@@ -323,20 +331,65 @@ const DEFAULT_DIALECT = 'duckdb';
   };
 }
 
+function findMalloyFiles(dirPath) {
+  let results = [];
+  const list = fs.readdirSync(dirPath);
+  list.forEach((file) => {
+    const fullPath = path.join(dirPath, file);
+    const stat = fs.statSync(fullPath);
+    if (stat && stat.isDirectory()) {
+      if (file !== 'node_modules' && file !== '.git') {
+        results = results.concat(findMalloyFiles(fullPath));
+      }
+    } else if (file.endsWith('.malloy') || file.endsWith('.malloynb')) {
+      results.push(fullPath);
+    }
+  });
+  return results;
+}
+
+function parseMalloyBatch(targetPaths) {
+  const results = {};
+  targetPaths.forEach((tp) => {
+    const absPath = path.resolve(tp);
+    if (fs.existsSync(absPath)) {
+      const stat = fs.statSync(absPath);
+      if (stat.isDirectory()) {
+        const files = findMalloyFiles(absPath);
+        files.forEach((f) => {
+          results[f] = parseMalloyAST(f);
+        });
+      } else if (stat.isFile()) {
+        results[absPath] = parseMalloyAST(absPath);
+      }
+    }
+  });
+  return results;
+}
+
 // Run CLI
 if (require.main === module) {
-  const filePath = process.argv[2];
-  if (!filePath) {
-    console.error('Usage: node parse_malloy_ast.js <file_path>');
+  const args = process.argv.slice(2);
+  if (args.length === 0) {
+    console.error('Usage: node parse_malloy_ast.js <file_path_or_dir> [--batch]');
     process.exit(1);
   }
   try {
-    const result = parseMalloyAST(filePath);
-    console.log(JSON.stringify(result, null, 2));
+    const isBatch = args.includes('--batch') || args.length > 1 ||
+      (args.length === 1 && fs.existsSync(path.resolve(args[0])) && fs.statSync(path.resolve(args[0])).isDirectory());
+
+    if (isBatch) {
+      const pathsToParse = args.filter(a => a !== '--batch');
+      const result = parseMalloyBatch(pathsToParse);
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      const result = parseMalloyAST(args[0]);
+      console.log(JSON.stringify(result, null, 2));
+    }
   } catch (err) {
     console.error(JSON.stringify({ error: err.message }));
     process.exit(1);
   }
 }
 
-module.exports = { parseMalloyAST };
+module.exports = { parseMalloyAST, parseMalloyBatch };

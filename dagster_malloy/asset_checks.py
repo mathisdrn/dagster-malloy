@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from dagster import (
     AssetCheckExecutionContext,
@@ -57,6 +57,7 @@ def build_malloy_asset_checks(
     target_asset_key: AssetKey,
     resource_key: str = "malloy",
     manifest_path: Optional[Union[str, Path]] = None,
+    manifest_dict: Optional[Dict[str, Any]] = None,
     use_manifest_if_exists: bool = True,
     auto_recompile_if_stale: bool = True,
     execution_mode: Optional[str] = None,
@@ -65,10 +66,13 @@ def build_malloy_asset_checks(
     """Discovers Malloy check queries (queries named check_* or annotated with # @check) and returns Dagster asset checks."""
     if isinstance(file_path, MalloyProject):
         project_obj = file_path
+        if manifest_dict is not None:
+            project_obj.manifest_dict = manifest_dict
     else:
         project_obj = MalloyProject(
             path=file_path,
             manifest_path=manifest_path,
+            manifest_dict=manifest_dict,
             use_manifest_if_exists=use_manifest_if_exists,
             auto_recompile_if_stale=auto_recompile_if_stale,
         )
@@ -116,11 +120,11 @@ def build_malloy_asset_checks(
 
                     mode = execution_mode or malloy_res.execution_mode
                     if mode == "warehouse":
-                        chk_sql, _ = malloy_res.compile_query(file_path=file_path_val, query_name=q_name_val)
+                        chk_sql, chk_dialect = malloy_res.compile_query(file_path=file_path_val, query_name=q_name_val)
                         db_conn = _get_db_connection(context, db_resource_key)
 
                         root_path = _get_project_root(Path(malloy_res.project_dir or malloy_res.home_dir or file_path_val))
-                        if hasattr(db_conn, "execute"):
+                        if chk_dialect and chk_dialect.lower() == "duckdb" and hasattr(db_conn, "execute"):
                             try:
                                 db_conn.execute(f"SET file_search_path = '{root_path}';")
                             except Exception:

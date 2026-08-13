@@ -126,6 +126,7 @@ def load_malloy_assets(
     include_checks: bool = True,
     can_subset: bool = True,
     manifest_path: Optional[Union[str, Path]] = None,
+    manifest_dict: Optional[Dict[str, Any]] = None,
     use_manifest_if_exists: bool = True,
     auto_recompile_if_stale: bool = True,
     project: Optional[Union[str, Path, MalloyProject]] = None,
@@ -140,10 +141,13 @@ def load_malloy_assets(
 
     if isinstance(target_project, MalloyProject):
         project_obj = target_project
+        if manifest_dict is not None:
+            project_obj.manifest_dict = manifest_dict
     else:
         project_obj = MalloyProject(
             path=target_project,
             manifest_path=manifest_path,
+            manifest_dict=manifest_dict,
             use_manifest_if_exists=use_manifest_if_exists,
             auto_recompile_if_stale=auto_recompile_if_stale,
         )
@@ -336,7 +340,7 @@ def load_malloy_assets(
                     db_conn = _get_db_connection_ctx(context, db_resource_key)
 
                     root_path = _get_project_root(Path(malloy_res.project_dir or malloy_res.home_dir or file_path))
-                    if hasattr(db_conn, "execute"):
+                    if dialect and dialect.lower() == "duckdb" and hasattr(db_conn, "execute"):
                         try:
                             db_conn.execute(f"SET file_search_path = '{root_path}';")
                         except Exception:
@@ -431,11 +435,11 @@ def load_malloy_assets(
                     chk_q_name = chk["check_name"]
 
                     if is_warehouse:
-                        chk_sql, _ = malloy_res.compile_query(file_path=chk_file, query_name=chk_q_name)
+                        chk_sql, chk_dialect = malloy_res.compile_query(file_path=chk_file, query_name=chk_q_name)
                         db_conn = _get_db_connection_ctx(context, db_resource_key)
 
                         root_path = _get_project_root(Path(malloy_res.project_dir or malloy_res.home_dir or chk_file))
-                        if hasattr(db_conn, "execute"):
+                        if chk_dialect and chk_dialect.lower() == "duckdb" and hasattr(db_conn, "execute"):
                             try:
                                 db_conn.execute(f"SET file_search_path = '{root_path}';")
                             except Exception:
@@ -533,6 +537,7 @@ def malloy_assets(
     include_checks: bool = True,
     can_subset: bool = True,
     manifest_path: Optional[Union[str, Path]] = None,
+    manifest_dict: Optional[Dict[str, Any]] = None,
     use_manifest_if_exists: bool = True,
     auto_recompile_if_stale: bool = True,
     project: Optional[Union[str, Path, MalloyProject]] = None,
@@ -551,6 +556,7 @@ def malloy_assets(
             include_checks=include_checks,
             can_subset=can_subset,
             manifest_path=manifest_path,
+            manifest_dict=manifest_dict,
             use_manifest_if_exists=use_manifest_if_exists,
             auto_recompile_if_stale=auto_recompile_if_stale,
             execution_mode=execution_mode,

@@ -9,6 +9,25 @@ from pydantic import Field
 from dagster_malloy.cli_client import MalloyCliClient
 
 
+def _quote_identifier(name: str, dialect: str) -> str:
+    """Quotes SQL identifiers according to target database dialect conventions."""
+    name_clean = name.strip()
+    if (
+        (name_clean.startswith('"') and name_clean.endswith('"'))
+        or (name_clean.startswith("`") and name_clean.endswith("`"))
+        or (name_clean.startswith("[") and name_clean.endswith("]"))
+    ):
+        return name_clean
+
+    dialect_clean = (dialect or "").lower().strip()
+    if dialect_clean in ("bigquery", "bq", "mysql"):
+        parts = [p.strip("`") for p in name_clean.split(".")]
+        return ".".join(f"`{p}`" for p in parts)
+
+    parts = [p.strip('"') for p in name_clean.split(".")]
+    return ".".join(f'"{p}"' for p in parts)
+
+
 def generate_ddl(
     sql: str,
     dialect: str,
@@ -19,11 +38,12 @@ def generate_ddl(
     object_type = "VIEW" if mode == "view" else "TABLE"
     dialect_clean = (dialect or "").lower()
     sql_clean = (sql or "").strip().rstrip(";")
+    quoted_table = _quote_identifier(table_name, dialect_clean)
 
     if dialect_clean in ("postgres", "postgresql"):
-        return f"DROP {object_type} IF EXISTS {table_name};\nCREATE {object_type} {table_name} AS\n{sql_clean}"
+        return f"DROP {object_type} IF EXISTS {quoted_table};\nCREATE {object_type} {quoted_table} AS\n{sql_clean}"
 
-    return f"CREATE OR REPLACE {object_type} {table_name} AS\n{sql_clean}"
+    return f"CREATE OR REPLACE {object_type} {quoted_table} AS\n{sql_clean}"
 
 
 class MalloyResource(ConfigurableResource):

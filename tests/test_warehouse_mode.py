@@ -12,15 +12,15 @@ def test_generate_ddl():
     
     # DuckDB / Snowflake / BigQuery table mode
     ddl_table = generate_ddl(sql, dialect="duckdb", table_name="my_table", mode="table")
-    assert ddl_table == "CREATE OR REPLACE TABLE my_table AS\nSELECT 1 as x"
+    assert ddl_table == 'CREATE OR REPLACE TABLE "my_table" AS\nSELECT 1 as x'
     
     # View mode
     ddl_view = generate_ddl(sql, dialect="snowflake", table_name="my_view", mode="view")
-    assert ddl_view == "CREATE OR REPLACE VIEW my_view AS\nSELECT 1 as x"
+    assert ddl_view == 'CREATE OR REPLACE VIEW "my_view" AS\nSELECT 1 as x'
     
     # Postgres table mode
     ddl_pg = generate_ddl(sql, dialect="postgres", table_name="my_pg_table", mode="table")
-    assert ddl_pg == "DROP TABLE IF EXISTS my_pg_table;\nCREATE TABLE my_pg_table AS\nSELECT 1 as x"
+    assert ddl_pg == 'DROP TABLE IF EXISTS "my_pg_table";\nCREATE TABLE "my_pg_table" AS\nSELECT 1 as x'
 
 
 def test_compile_ctas(tmp_path: Path):
@@ -35,7 +35,7 @@ def test_compile_ctas(tmp_path: Path):
         file_path=model_file, query_name="item_summary", target_table="item_summary", mode="table"
     )
 
-    assert "CREATE OR REPLACE TABLE item_summary AS" in ddl
+    assert 'CREATE OR REPLACE TABLE "item_summary" AS' in ddl
     assert "widget" in sql or "item_summary" in ddl
 
 

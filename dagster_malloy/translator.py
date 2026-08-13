@@ -49,6 +49,36 @@ def _table_to_asset_key(table_str: str) -> AssetKey:
     return AssetKey([table.replace(".", "_")])
 
 
+def _get_all_joined_sources(
+    source_name: str,
+    sources_map: Mapping[str, Any],
+    visited: Optional[Set[str]] = None,
+) -> Set[str]:
+    """Recursively resolves all joined and base sources for a given source definition."""
+    if visited is None:
+        visited = set()
+    if source_name in visited or source_name not in sources_map:
+        return set()
+    visited.add(source_name)
+
+    source_info = sources_map[source_name]
+    all_joins: Set[str] = set()
+
+    if getattr(source_info, "base_source_name", None):
+        base_name = source_info.base_source_name
+        if base_name in sources_map:
+            all_joins.add(base_name)
+            all_joins.update(_get_all_joined_sources(base_name, sources_map, visited))
+
+    joined = getattr(source_info, "joined_sources", set())
+    for j_name in joined:
+        if j_name in sources_map:
+            all_joins.add(j_name)
+            all_joins.update(_get_all_joined_sources(j_name, sources_map, visited))
+
+    return all_joins
+
+
 class MalloyTranslator:
     """Base translator class mapping Malloy queries/models to Dagster AssetSpecs.
 
@@ -73,23 +103,17 @@ class MalloyTranslator:
             source_key = self.get_source_asset_key(data.query_info.source_name, data.file_path)
             deps.append(source_key)
 
-            primary_source = data.parsed_model.sources.get(data.query_info.source_name)
-            if primary_source:
-                for joined_name in sorted(primary_source.joined_sources):
-                    if joined_name in data.parsed_model.sources:
-                        j_key = self.get_source_asset_key(joined_name, data.file_path)
-                        if j_key not in deps:
-                            deps.append(j_key)
+            all_joined = _get_all_joined_sources(data.query_info.source_name, data.parsed_model.sources)
+            for joined_name in sorted(all_joined):
+                if joined_name != data.query_info.source_name:
+                    j_key = self.get_source_asset_key(joined_name, data.file_path)
+                    if j_key not in deps:
+                        deps.append(j_key)
         else:
             for table in data.table_dependencies:
-                clean_table = table.strip("'\"")
-                path_obj = Path(clean_table)
-                parts = list(path_obj.parts)
-                if parts:
-                    parts[-1] = path_obj.stem
-                    key = AssetKey(parts)
-                    if key not in deps:
-                        deps.append(key)
+                key = _table_to_asset_key(table)
+                if key not in deps:
+                    deps.append(key)
 
         # Resolve dependencies to nested queries if matching top-level query assets exist
         nested_query_deps = []
