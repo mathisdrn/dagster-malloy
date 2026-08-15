@@ -6,16 +6,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from dagster_malloy.parser import MalloyParser
+from dagster_malloy.translator import _load_malloy_config
 
 
 @dataclass
 class MalloyProject:
-    """Represents a Malloy project or file, managing paths, manifests, and auto-compilation.
+    """Represents a Malloy project or file, managing paths, manifests, configs, and auto-compilation.
 
     Attributes:
         path (Union[str, Path]): Path to a `.malloy`/`.malloynb` file or project directory.
         manifest_path (Optional[Union[str, Path]]): Path to `malloy_manifest.json`.
         manifest_dict (Optional[Dict[str, Any]]): Pre-loaded AST manifest dictionary. Default None.
+        config_path (Optional[Union[str, Path]]): Path to `malloy-config.json`. Default None.
         project_dir (Optional[Union[str, Path]]): Root project directory.
         use_manifest_if_exists (bool): Whether to use manifest when available. Default True.
         auto_recompile_if_stale (bool): Whether to recompile manifest if stale in dev. Default True.
@@ -24,6 +26,7 @@ class MalloyProject:
     path: Union[str, Path]
     manifest_path: Optional[Union[str, Path]] = None
     manifest_dict: Optional[Dict[str, Any]] = None
+    config_path: Optional[Union[str, Path]] = None
     project_dir: Optional[Union[str, Path]] = None
     use_manifest_if_exists: bool = True
     auto_recompile_if_stale: bool = True
@@ -58,6 +61,10 @@ class MalloyProject:
             if c.exists():
                 return c
         return p.parent / "malloy_manifest.json"
+
+    def load_config(self) -> Dict[str, Any]:
+        """Loads and returns the dictionary from malloy-config.json."""
+        return _load_malloy_config(self.path_obj, self.config_path)
 
     def get_malloy_files(self) -> List[Path]:
         """Returns all `.malloy` and `.malloynb` files in the project path."""

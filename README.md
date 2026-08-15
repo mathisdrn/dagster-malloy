@@ -146,7 +146,21 @@ resource = MalloyResource(
 )
 ```
 
-### 6. Custom Translator (`MalloyTranslator`)
+### 6. Connection Config & Dialect Resolution (`malloy-config.json`)
+
+`dagster-malloy` automatically resolves custom connection identifiers (e.g. `orca.table(...)`) to their underlying database engine (e.g. `duckdb`) to assign clean kind badges in the Dagster UI and enrich asset metadata:
+
+1. **Automatic Config Discovery**: `dagster-malloy` automatically discovers `malloy-config.json` in parent directories, or you can specify `config_path`:
+   ```python
+   malloy_assets = load_malloy_assets(
+       path="./models",
+       config_path="./malloy-config.json",
+   )
+   ```
+2. **Database Resource Fallback**: In warehouse execution mode (`execution_mode="warehouse"`), passing `db_resource_key="duckdb"` provides an immediate fallback to infer the dialect and assign the appropriate kind badge without needing a `malloy-config.json` file.
+3. **Lineage & Storage Metadata**: Both sources and queries are enriched with standard metadata keys: `malloy/connection`, `malloy/dialect`, `dagster/table_name`, `dagster/storage_kind`, and database/schema details from connection configurations.
+
+### 7. Custom Translator (`MalloyTranslator`)
 
 Subclass `MalloyTranslator` to customize asset keys, tags, group names, metadata, or upstream dependencies:
 
@@ -169,7 +183,7 @@ malloy_assets = load_malloy_assets(
 )
 ```
 
-### 7. Data Quality Checks
+### 8. Data Quality Checks
 
 Malloy check queries (starting with `check_`, `test_`, `assert_` or annotated with `# @check`) are automatically registered as inline Dagster asset checks by default (`include_checks=True`).
 

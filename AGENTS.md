@@ -4,6 +4,6 @@
 
 ### Practices
 
-- Keep track of changes in [CHANGELOG.md](CHANGELOG.md).
+- Keep track of changes in `CHANGELOG.md`.
 - Push commits on `main` branch.
 - Use `uv publish` to publish to PyPI.

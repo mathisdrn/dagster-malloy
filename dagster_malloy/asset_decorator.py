@@ -20,11 +20,10 @@ from dagster import (
 )
 
 from dagster_malloy._compat import HAS_POLARS, pl
-
 from dagster_malloy.parser import MalloyParser
 from dagster_malloy.project import MalloyProject
 from dagster_malloy.resource import MalloyResource
-from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData
+from dagster_malloy.translator import MalloyTranslator, MalloyTranslatorData, _load_malloy_config, _resolve_dialect
 
 
 def _get_project_root(path_val: Path) -> Path:
@@ -32,7 +31,10 @@ def _get_project_root(path_val: Path) -> Path:
     resolved = path_val.resolve()
     start_dir = resolved if resolved.is_dir() else resolved.parent
     for parent in [start_dir] + list(start_dir.parents):
-        if any((parent / indicator).exists() for indicator in ["data", "pyproject.toml", "uv.lock", "definitions.py", "dagster.yaml", ".git"]):
+        if any(
+            (parent / indicator).exists()
+            for indicator in ["data", "pyproject.toml", "uv.lock", "definitions.py", "dagster.yaml", ".git"]
+        ):
             return parent
     return start_dir
 
@@ -42,23 +44,13 @@ def _dataset_to_table_schema(data: Any) -> TableSchema:
     columns = []
     if HAS_POLARS and isinstance(data, pl.DataFrame):
         for col_name, dtype in data.schema.items():
-            columns.append(
-                TableColumn(
-                    name=str(col_name),
-                    type=str(dtype),
-                )
-            )
+            columns.append(TableColumn(name=str(col_name), type=str(dtype)))
     elif isinstance(data, list) and len(data) > 0:
         first_row = data[0]
         if isinstance(first_row, dict):
             for col_name, val in first_row.items():
                 col_type = type(val).__name__ if val is not None else "string"
-                columns.append(
-                    TableColumn(
-                        name=str(col_name),
-                        type=col_type,
-                    )
-                )
+                columns.append(TableColumn(name=str(col_name), type=col_type))
     return TableSchema(columns=columns)
 
 
@@ -74,11 +66,11 @@ def _dataset_to_markdown_preview(data: Any, max_rows: int = 10) -> str:
             headers = [str(h) for h in first_row.keys()]
             header_line = "| " + " | ".join(headers) + " |"
             sep_line = "| " + " | ".join(["---"] * len(headers)) + " |"
-            body_lines = []
-            for r in preview_rows:
-                if isinstance(r, dict):
-                    row_str = "| " + " | ".join(str(r.get(h, "")) for h in headers) + " |"
-                    body_lines.append(row_str)
+            body_lines = [
+                "| " + " | ".join(str(r.get(h, "")) for h in headers) + " |"
+                for r in preview_rows
+                if isinstance(r, dict)
+            ]
             return "\n".join([header_line, sep_line, *body_lines])
     return "*No preview available.*"
 
@@ -133,6 +125,7 @@ def load_malloy_assets(
     execution_mode: Optional[str] = None,
     materialization_mode: str = "table",
     db_resource_key: Optional[str] = None,
+    config_path: Optional[Union[str, Path]] = None,
 ) -> AssetsDefinition:
     """Loads Malloy queries and models from a file, directory, or MalloyProject as Dagster Software-Defined Assets."""
     target_project = project or path
@@ -143,11 +136,14 @@ def load_malloy_assets(
         project_obj = target_project
         if manifest_dict is not None:
             project_obj.manifest_dict = manifest_dict
+        if config_path is not None:
+            project_obj.config_path = config_path
     else:
         project_obj = MalloyProject(
             path=target_project,
             manifest_path=manifest_path,
             manifest_dict=manifest_dict,
+            config_path=config_path,
             use_manifest_if_exists=use_manifest_if_exists,
             auto_recompile_if_stale=auto_recompile_if_stale,
         )
@@ -162,6 +158,11 @@ def load_malloy_assets(
 
     manifest_dict = project_obj.load_manifest()
     models_map = manifest_dict.get("models", manifest_dict) if manifest_dict else None
+    config_dict = (
+        project_obj.load_config()
+        if hasattr(project_obj, "load_config")
+        else _load_malloy_config(path_obj, config_path)
+    )
 
     specs: List[AssetSpec] = []
     check_specs: List[AssetCheckSpec] = []
@@ -191,29 +192,61 @@ def load_malloy_assets(
         # 1. Register Source Semantic Model Specs if requested
         if include_sources:
             for s_name, s_info in parsed_model.sources.items():
-                source_spec = translator.get_source_asset_spec(s_name, file, parsed_model)
+                try:
+                    source_spec = translator.get_source_asset_spec(
+                        source_name=s_name,
+                        file_path=file,
+                        parsed_model=parsed_model,
+                        config=config_dict,
+                        config_path=config_path,
+                        db_resource_key=db_resource_key,
+                    )
+                except TypeError:
+                    source_spec = translator.get_source_asset_spec(s_name, file, parsed_model)
+
                 specs.append(source_spec)
                 asset_query_map[source_spec.key] = {
                     "type": "source",
                     "file_path": file,
                     "source_name": s_name,
-                    "source_info": s_info,
+                    "spec": source_spec,
                 }
 
-        # First pass to identify query asset keys in this file
         file_query_keys: List[AssetKey] = []
         check_queries: List[Tuple[str, Any]] = []
 
         for q_name, q_info in parsed_model.queries.items():
-            if q_info.is_check or "check" in q_info.tags or q_name.startswith("check_") or q_name.startswith("test_") or q_name.startswith("assert_"):
+            if (
+                q_info.is_check
+                or "check" in q_info.tags
+                or q_name.startswith("check_")
+                or q_name.startswith("test_")
+                or q_name.startswith("assert_")
+            ):
                 check_queries.append((q_name, q_info))
                 continue
+
+            conn_name = None
+            if q_info.source_name and q_info.source_name in parsed_model.sources:
+                conn_name = parsed_model.sources[q_info.source_name].connection
+
+            resolved_dialect = _resolve_dialect(
+                conn_name=conn_name,
+                config=config_dict,
+                file_path=file,
+                config_path=config_path,
+                db_resource_key=db_resource_key,
+            )
 
             trans_data = MalloyTranslatorData(
                 query_info=q_info,
                 parsed_model=parsed_model,
                 file_path=file,
-                dialect=q_info.source_name and parsed_model.sources.get(q_info.source_name, {}).connection if parsed_model.sources.get(q_info.source_name) else None,
+                dialect=resolved_dialect,
+                connection_name=conn_name,
+                config=config_dict,
+                config_path=config_path,
+                db_resource_key=db_resource_key,
                 table_dependencies=parsed_model.table_dependencies,
                 include_sources=include_sources,
             )
@@ -221,12 +254,11 @@ def load_malloy_assets(
             specs.append(query_spec)
             file_query_keys.append(query_spec.key)
 
-            # Register query asset specification (1-to-1 mapping with Malloy query name)
             asset_query_map[query_spec.key] = {
                 "type": "dashboard" if (q_info.is_dashboard or "dashboard" in q_info.tags) else "query",
                 "file_path": file,
                 "query_name": q_name,
-                "query_info": q_info,
+                "spec": query_spec,
             }
 
         # 2. Register Inline Asset Checks if requested
@@ -254,7 +286,6 @@ def load_malloy_assets(
                 chk_info = {
                     "file_path": file,
                     "check_name": q_name,
-                    "query_info": q_info,
                     "target_asset_key": target_key,
                 }
                 if target_key not in inline_checks_map:
@@ -263,7 +294,6 @@ def load_malloy_assets(
 
     multi_asset_name = name or f"malloy_assets_{path_obj.stem.replace('.', '_')}"
 
-    # Setup resource requirements
     req_resources = {"malloy"}
     if db_resource_key:
         req_resources.add(db_resource_key)
@@ -276,12 +306,9 @@ def load_malloy_assets(
         required_resource_keys=req_resources,
     )
     def _malloy_multi_asset(context: AssetExecutionContext):
-        malloy_res: MalloyResource = getattr(context.resources, "malloy", None)
-        if malloy_res is None:
-            malloy_res = MalloyResource()
-
+        malloy_res: MalloyResource = getattr(context.resources, "malloy", None) or MalloyResource()
         mode = execution_mode or malloy_res.execution_mode
-        is_warehouse = (mode == "warehouse")
+        is_warehouse = mode == "warehouse"
 
         from graphlib import TopologicalSorter
 
@@ -306,28 +333,16 @@ def load_malloy_assets(
             info = asset_query_map[target_key]
             asset_type = info.get("type", "query")
             file_path = info["file_path"]
-
+            spec = info.get("spec") or specs_by_key.get(target_key)
             start_time = time.time()
 
             if asset_type == "source":
-                s_info = info.get("source_info")
-                s_name = info.get("source_name")
-                metadata = {
-                    "file_path": str(file_path),
-                    "source_name": s_name,
-                    "status": "Semantic Model Registered",
-                }
-                if s_info and s_info.table_or_sql:
-                    metadata["table_or_sql"] = s_info.table_or_sql
-                if s_info and s_info.raw_code:
-                    metadata["malloy_source_code"] = MetadataValue.md(
-                        f"```malloy\n{s_info.raw_code}\n```"
-                    )
+                metadata = dict(spec.metadata) if spec else {}
+                metadata["status"] = "Semantic Model Registered"
                 yield MaterializeResult(asset_key=target_key, metadata=metadata)
 
             elif asset_type in ("query", "dashboard"):
                 query_name = info["query_name"]
-                q_info = info.get("query_info")
 
                 if is_warehouse:
                     target_table_name = target_key.path[-1]
@@ -339,17 +354,18 @@ def load_malloy_assets(
                     )
                     db_conn = _get_db_connection_ctx(context, db_resource_key)
 
-                    root_path = _get_project_root(Path(malloy_res.project_dir or malloy_res.home_dir or file_path))
+                    root_path = _get_project_root(
+                        Path(malloy_res.project_dir or malloy_res.home_dir or file_path)
+                    )
                     if dialect and dialect.lower() == "duckdb" and hasattr(db_conn, "execute"):
                         try:
                             db_conn.execute(f"SET file_search_path = '{root_path}';")
                         except Exception:
                             pass
 
-                    # Execute DDL
                     row_count = 0
                     if hasattr(db_conn, "execute"):
-                        res_exec = db_conn.execute(ddl)
+                        db_conn.execute(ddl)
                         try:
                             c_res = db_conn.execute(f"SELECT COUNT(*) FROM {target_table_name}").fetchone()
                             row_count = c_res[0] if c_res else 0
@@ -366,19 +382,17 @@ def load_malloy_assets(
                             row_count = 0
 
                     duration = time.time() - start_time
-                    metadata = {
-                        "file_path": str(file_path),
-                        "query_name": query_name,
-                        "dialect": dialect,
+                    metadata = dict(spec.metadata) if spec else {}
+                    metadata.update({
                         "materialization_mode": materialization_mode,
                         "target_table": target_table_name,
+                        "dagster/table_name": target_table_name,
                         "compiled_sql": MetadataValue.text(sql) if sql else "N/A",
                         "ddl": MetadataValue.text(ddl),
                         "dagster/row_count": row_count,
                         "execution_duration_seconds": round(duration, 4),
-                    }
+                    })
 
-                    # Fetch table sample preview and schema metadata from warehouse
                     try:
                         if hasattr(db_conn, "execute"):
                             s_res = db_conn.execute(f"SELECT * FROM {target_table_name} LIMIT 5")
@@ -386,20 +400,19 @@ def load_malloy_assets(
                                 sample_cols = [c[0] for c in s_res.description]
                                 sample_rows = s_res.fetchall()
                                 if sample_cols and sample_rows:
-                                    table_schema = TableSchema(columns=[TableColumn(name=str(col), type="string") for col in sample_cols])
+                                    table_schema = TableSchema(
+                                        columns=[TableColumn(name=str(col), type="string") for col in sample_cols]
+                                    )
                                     metadata["dagster/column_schema"] = MetadataValue.table_schema(table_schema)
                                     header = "| " + " | ".join(sample_cols) + " |"
                                     sep = "| " + " | ".join(["---"] * len(sample_cols)) + " |"
                                     r_lines = ["| " + " | ".join(str(val) for val in row) + " |" for row in sample_rows]
-                                    preview_md = f"### Warehouse Table Preview (`{target_table_name}`)\n\n" + "\n".join([header, sep] + r_lines)
-                                    metadata["preview"] = MetadataValue.md(preview_md)
+                                    metadata["preview"] = MetadataValue.md(
+                                        f"### Warehouse Table Preview (`{target_table_name}`)\n\n" + "\n".join([header, sep] + r_lines)
+                                    )
                     except Exception:
                         pass
 
-                    if q_info and q_info.raw_code:
-                        metadata["malloy_source_code"] = MetadataValue.md(
-                            f"```malloy\n{q_info.raw_code}\n```"
-                        )
                     yield MaterializeResult(asset_key=target_key, metadata=metadata)
 
                 else:
@@ -408,19 +421,12 @@ def load_malloy_assets(
                     duration = time.time() - start_time
                     row_count = _get_row_count(res_data)
 
-                    metadata = {
-                        "file_path": str(file_path),
-                        "query_name": query_name,
-                        "dialect": dialect,
+                    metadata = dict(spec.metadata) if spec else {}
+                    metadata.update({
                         "compiled_sql": MetadataValue.text(sql) if sql else "N/A",
                         "dagster/row_count": row_count,
                         "execution_duration_seconds": round(duration, 4),
-                    }
-
-                    if q_info and q_info.raw_code:
-                        metadata["malloy_source_code"] = MetadataValue.md(
-                            f"```malloy\n{q_info.raw_code}\n```"
-                        )
+                    })
 
                     if res_data is not None and row_count > 0:
                         metadata["dagster/column_schema"] = MetadataValue.table_schema(_dataset_to_table_schema(res_data))
@@ -460,17 +466,17 @@ def load_malloy_assets(
                                         first = dict(zip(cols, rows[0]))
                                         if "invalid_count" in first:
                                             inv = int(first["invalid_count"])
-                                            passed = (inv == 0)
+                                            passed = inv == 0
                                             desc = f"Check '{chk_q_name}' returned {inv} invalid records."
                                         elif "fail_count" in first:
                                             f_val = int(first["fail_count"])
-                                            passed = (f_val == 0)
+                                            passed = f_val == 0
                                             desc = f"Check '{chk_q_name}' returned {f_val} failed records."
                                         else:
-                                            passed = (row_count == 0)
+                                            passed = row_count == 0
                                             desc = f"Check '{chk_q_name}' returned {row_count} rows."
                                     else:
-                                        passed = (row_count == 0)
+                                        passed = row_count == 0
                         except Exception as e:
                             passed = False
                             desc = f"Check '{chk_q_name}' failed to execute SQL: {e}"
@@ -489,7 +495,6 @@ def load_malloy_assets(
 
                     else:
                         res_chk = malloy_res.execute_query(file_path=chk_file, query_name=chk_q_name)
-
                         row_count = _get_row_count(res_chk)
                         first_row = {}
                         if HAS_POLARS and isinstance(res_chk, pl.DataFrame):
@@ -504,14 +509,14 @@ def load_malloy_assets(
 
                         if "invalid_count" in first_row:
                             inv_val = int(first_row["invalid_count"])
-                            passed = (inv_val == 0)
+                            passed = inv_val == 0
                             desc = f"Check '{chk_q_name}' returned {inv_val} invalid records."
                         elif "fail_count" in first_row:
                             fail_val = int(first_row["fail_count"])
-                            passed = (fail_val == 0)
+                            passed = fail_val == 0
                             desc = f"Check '{chk_q_name}' returned {fail_val} failed records."
                         else:
-                            passed = (row_count == 0)
+                            passed = row_count == 0
                             desc = f"Check '{chk_q_name}' returned {row_count} rows."
 
                         yield AssetCheckResult(
@@ -544,8 +549,10 @@ def malloy_assets(
     execution_mode: Optional[str] = None,
     materialization_mode: str = "table",
     db_resource_key: Optional[str] = None,
+    config_path: Optional[Union[str, Path]] = None,
 ) -> Callable:
     """Decorator version of load_malloy_assets."""
+
     def decorator(fn: Callable) -> AssetsDefinition:
         return load_malloy_assets(
             path=path,
@@ -562,7 +569,7 @@ def malloy_assets(
             execution_mode=execution_mode,
             materialization_mode=materialization_mode,
             db_resource_key=db_resource_key,
+            config_path=config_path,
         )
 
     return decorator
-

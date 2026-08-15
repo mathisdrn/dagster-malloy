@@ -120,6 +120,49 @@ const VALID_DIALECTS = new Set([
 ]);
 const DEFAULT_DIALECT = 'duckdb';
 
+function findMalloyConfigFile(startDir) {
+  let curr = path.resolve(startDir);
+  for (let i = 0; i < 10; i++) {
+    for (const name of ['malloy-config.json', '.malloyconfig.json', 'malloy_config.json']) {
+      const cand = path.join(curr, name);
+      if (fs.existsSync(cand)) return cand;
+    }
+    const parent = path.dirname(curr);
+    if (parent === curr) break;
+    curr = parent;
+  }
+  return null;
+}
+
+function loadMalloyConfig(filePath) {
+  const dir = fs.existsSync(filePath) && fs.statSync(filePath).isDirectory() ? filePath : path.dirname(filePath);
+  const cfgPath = findMalloyConfigFile(dir);
+  if (!cfgPath) return {};
+  try {
+    return JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+  } catch (e) {
+    return {};
+  }
+}
+
+  const config = loadMalloyConfig(absolutePath);
+  const connectionsMap = {};
+  if (config.connections) {
+    if (Array.isArray(config.connections)) {
+      config.connections.forEach(c => {
+        if (c && c.name && (c.is || c.dialect)) {
+          connectionsMap[String(c.name).toLowerCase()] = (c.is || c.dialect).toLowerCase();
+        }
+      });
+    } else if (typeof config.connections === 'object') {
+      Object.entries(config.connections).forEach(([name, c]) => {
+        if (c && (c.is || c.dialect)) {
+          connectionsMap[String(name).toLowerCase()] = (c.is || c.dialect).toLowerCase();
+        }
+      });
+    }
+  }
+
   // Loop to resolve imports, dialects, and table schemas
   for (let i = 0; i < 10; i++) {
     const res = t.importsAndTablesStep.step(t);
@@ -152,8 +195,13 @@ const DEFAULT_DIALECT = 'duckdb';
 
     if (res.connectionDialects) {
       for (const [connName, dialect] of Object.entries(res.connectionDialects)) {
-        const resolvedDialect = (dialect && VALID_DIALECTS.has(dialect)) ? dialect : DEFAULT_DIALECT;
-        t.connectionDialectZone.define(connName, resolvedDialect);
+        const lowerConn = String(connName).toLowerCase();
+        const cfgDialect = connectionsMap[lowerConn];
+        const dialectStr = typeof dialect === 'string' ? dialect.toLowerCase() : null;
+        const targetDialect = (dialectStr && VALID_DIALECTS.has(dialectStr))
+          ? dialectStr
+          : (cfgDialect && VALID_DIALECTS.has(cfgDialect) ? cfgDialect : (VALID_DIALECTS.has(lowerConn) ? lowerConn : DEFAULT_DIALECT));
+        t.connectionDialectZone.define(connName, targetDialect);
       }
     }
 
@@ -168,9 +216,14 @@ const DEFAULT_DIALECT = 'duckdb';
           tableDeps.add(rawTable);
         }
         const connName = tableInfo.connectionName || 'duckdb';
-        const dialect = (tableInfo.dialect && VALID_DIALECTS.has(tableInfo.dialect))
-          ? tableInfo.dialect
-          : (VALID_DIALECTS.has(connName) ? connName : DEFAULT_DIALECT);
+        const lowerConn = String(connName).toLowerCase();
+        const cfgDialect = connectionsMap[lowerConn];
+        const dialectStr = typeof tableInfo.dialect === 'string' ? tableInfo.dialect.toLowerCase() : null;
+        const dialect = (dialectStr && VALID_DIALECTS.has(dialectStr))
+          ? dialectStr
+          : (cfgDialect && VALID_DIALECTS.has(cfgDialect)
+            ? cfgDialect
+            : (VALID_DIALECTS.has(lowerConn) ? lowerConn : DEFAULT_DIALECT));
         t.schemaZone.define(tableKey, {
           dialect: dialect,
           structRelationship: { type: 'basetable', connectionName: connName },

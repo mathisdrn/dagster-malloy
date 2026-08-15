@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.6] - 2026-08-13
+## [0.2.7] - 2026-08-15
+
+### Added
+
+- **Connection Dialect Resolution via `malloy-config.json`**: Added automatic resolution of underlying dialects (`"is"`) from custom connection definitions in `malloy-config.json` or Dagster `db_resource_key` fallbacks ([#1](https://github.com/mathisdrn/dagster-malloy/issues/1)).
+- **Config Path Parameter**: Added `config_path` parameter to `MalloyProject`, `load_malloy_assets()`, and `@malloy_assets`.
+- **Lineage and Storage Metadata Enrichment**: Enriched asset specifications and `MaterializeResult` metadata with `malloy/connection`, `malloy/dialect`, `dagster/table_name`, `dagster/storage_kind`, and database/schema details from connection configurations ([#1](https://github.com/mathisdrn/dagster-malloy/issues/1)).
+
+### Fixed
+
+- **Clean Asset Kind Badges**: Prevented arbitrary custom connection names (e.g. `orca`) from leaking into Dagster asset kind badges; kind badges are now strictly restricted to recognized query engines (`duckdb`, `bigquery`, `snowflake`, `postgres`, `trino`, `presto`, `mysql`, `sqlite`, `motherduck`, `ducklake`) ([#1](https://github.com/mathisdrn/dagster-malloy/issues/1)).
+- **AST Parser Config Awareness**: `parse_malloy_ast.js` now discovers `malloy-config.json` to resolve custom connection dialects in `connectionDialectZone`.
 
 ### Added
 

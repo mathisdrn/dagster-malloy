@@ -1,9 +1,10 @@
 """Translator classes for mapping Malloy models/queries to Dagster AssetSpecs."""
 
+import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional, Set, Union
 
 from dagster import (
     AssetKey,
@@ -14,6 +15,87 @@ from dagster import (
 )
 
 from dagster_malloy.parser import MalloyParsedModel, MalloyQueryInfo
+
+VALID_DIALECT_KINDS = {
+    "duckdb",
+    "bigquery",
+    "snowflake",
+    "postgres",
+    "trino",
+    "presto",
+    "mysql",
+    "sqlite",
+    "motherduck",
+    "ducklake",
+}
+
+
+def _load_malloy_config(start_path: Path, explicit_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+    """Finds and parses malloy-config.json."""
+    if explicit_path:
+        p = Path(explicit_path).resolve()
+        if p.is_file():
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                return {}
+
+    start_dir = start_path if start_path.is_dir() else start_path.parent
+    for parent in [start_dir] + list(start_dir.parents):
+        for name in ["malloy-config.json", ".malloyconfig.json"]:
+            cand = parent / name
+            if cand.exists():
+                try:
+                    with open(cand, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception:
+                    return {}
+    return {}
+
+
+def _resolve_dialect(
+    conn_name: Optional[str] = None,
+    explicit_dialect: Optional[str] = None,
+    config: Optional[Dict[str, Any]] = None,
+    file_path: Optional[Path] = None,
+    config_path: Optional[Union[str, Path]] = None,
+    db_resource_key: Optional[str] = None,
+) -> Optional[str]:
+    """Resolves underlying dialect/engine from connection name, config, or db_resource_key."""
+    val = (explicit_dialect or conn_name or "").lower().strip()
+    if val in VALID_DIALECT_KINDS:
+        return val
+    if val in ("bq", "bigquery"):
+        return "bigquery"
+    if val in ("postgresql", "postgres"):
+        return "postgres"
+
+    if conn_name:
+        cfg = config if config is not None else (_load_malloy_config(file_path, config_path) if file_path else {})
+        connections = cfg.get("connections", cfg) if isinstance(cfg, dict) else {}
+        conn_entry = {}
+        if isinstance(connections, dict):
+            conn_entry = connections.get(conn_name) or connections.get(conn_name.lower(), {})
+        elif isinstance(connections, list):
+            conn_entry = next((c for c in connections if isinstance(c, dict) and str(c.get("name", "")).lower() == conn_name.lower()), {})
+
+        if isinstance(conn_entry, dict):
+            target_is = str(conn_entry.get("is") or conn_entry.get("dialect") or "").lower().strip()
+            if target_is in VALID_DIALECT_KINDS:
+                return target_is
+            if target_is in ("bq", "bigquery"):
+                return "bigquery"
+            if target_is in ("postgresql", "postgres"):
+                return "postgres"
+
+    if db_resource_key:
+        clean_res = db_resource_key.lower().strip()
+        for d in VALID_DIALECT_KINDS:
+            if d in clean_res:
+                return d
+
+    return explicit_dialect.lower().strip() if explicit_dialect else None
 
 
 @dataclass
@@ -27,6 +109,10 @@ class MalloyTranslatorData:
     dialect: Optional[str] = None
     table_dependencies: Set[str] = field(default_factory=set)
     include_sources: bool = True
+    connection_name: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
+    config_path: Optional[Union[str, Path]] = None
+    db_resource_key: Optional[str] = None
 
 
 def _table_to_asset_key(table_str: str) -> AssetKey:
@@ -80,10 +166,7 @@ def _get_all_joined_sources(
 
 
 class MalloyTranslator:
-    """Base translator class mapping Malloy queries/models to Dagster AssetSpecs.
-
-    Subclass this to customize AssetKeys, tags, group names, metadata, kinds, or dependencies.
-    """
+    """Base translator class mapping Malloy queries/models to Dagster AssetSpecs."""
 
     def get_asset_key(self, data: MalloyTranslatorData) -> AssetKey:
         """Computes the Dagster AssetKey for a Malloy query asset."""
@@ -115,8 +198,6 @@ class MalloyTranslator:
                 if key not in deps:
                     deps.append(key)
 
-        # Resolve dependencies to nested queries if matching top-level query assets exist
-        nested_query_deps = []
         if data.query_info and data.query_info.nested_views:
             for ref_view in data.query_info.nested_views:
                 if ref_view in data.parsed_model.queries:
@@ -125,14 +206,14 @@ class MalloyTranslator:
                         query_info=ref_q_info,
                         parsed_model=data.parsed_model,
                         file_path=data.file_path,
+                        config=data.config,
+                        config_path=data.config_path,
+                        db_resource_key=data.db_resource_key,
                     )
                     ref_key = self.get_asset_key(ref_data)
                     self_key = self.get_asset_key(data)
-                    if ref_key not in nested_query_deps and ref_key != self_key:
-                        nested_query_deps.append(ref_key)
-
-        if nested_query_deps:
-            return nested_query_deps
+                    if ref_key not in deps and ref_key != self_key:
+                        deps.append(ref_key)
 
         return deps
 
@@ -147,33 +228,30 @@ class MalloyTranslator:
         return "malloy"
 
     def get_kinds(self, data: MalloyTranslatorData) -> Set[str]:
-        """Computes the kind badges (e.g. 'malloy', 'duckdb', 'dashboard') for the asset UI."""
+        """Computes kind badges for the asset UI, restricting engine badges to valid dialects."""
         kinds = {"malloy"}
         if data.query_info.is_dashboard or "dashboard" in data.query_info.tags:
             kinds.add("dashboard")
         else:
             kinds.add("⚙️\N{NO-BREAK SPACE}Query")
 
-        dialect = data.dialect
-        if not dialect and data.query_info.source_name:
+        conn_name = data.connection_name
+        if not conn_name and data.query_info.source_name:
             source_info = data.parsed_model.sources.get(data.query_info.source_name)
             if source_info and source_info.connection:
-                dialect = source_info.connection.lower()
+                conn_name = source_info.connection
 
-        if dialect:
-            clean_dialect = dialect.lower().strip()
-            if "duckdb" in clean_dialect:
-                kinds.add("duckdb")
-            elif "bigquery" in clean_dialect or "bq" in clean_dialect:
-                kinds.add("bigquery")
-            elif "snowflake" in clean_dialect:
-                kinds.add("snowflake")
-            elif "postgres" in clean_dialect:
-                kinds.add("postgres")
-            elif "trino" in clean_dialect:
-                kinds.add("trino")
-            else:
-                kinds.add(clean_dialect)
+        dialect = _resolve_dialect(
+            conn_name=conn_name,
+            explicit_dialect=data.dialect,
+            config=data.config,
+            file_path=data.file_path,
+            config_path=data.config_path,
+            db_resource_key=data.db_resource_key,
+        )
+
+        if dialect and dialect in VALID_DIALECT_KINDS:
+            kinds.add(dialect)
 
         return kinds
 
@@ -198,11 +276,18 @@ class MalloyTranslator:
         return None
 
     def get_metadata(self, data: MalloyTranslatorData) -> Mapping[str, Any]:
-        """Computes Dagster metadata for the asset including Malloy source code and code references."""
+        """Computes Dagster metadata for the asset including lineage and code references."""
         metadata: Dict[str, Any] = {
             "file_path": str(data.file_path),
             "query_name": data.query_info.name,
         }
+
+        source_info = (
+            data.parsed_model.sources.get(data.query_info.source_name)
+            if data.query_info.source_name
+            else None
+        )
+        conn_name = data.connection_name or (source_info.connection if source_info else None)
 
         if data.query_info.source_name:
             metadata["source_name"] = data.query_info.source_name
@@ -212,8 +297,39 @@ class MalloyTranslator:
             metadata["composed_views"] = MetadataValue.text(", ".join(data.query_info.nested_views))
         if data.compiled_sql:
             metadata["compiled_sql"] = data.compiled_sql
-        if data.dialect:
-            metadata["dialect"] = data.dialect
+
+        dialect = _resolve_dialect(
+            conn_name=conn_name,
+            explicit_dialect=data.dialect,
+            config=data.config,
+            file_path=data.file_path,
+            config_path=data.config_path,
+            db_resource_key=data.db_resource_key,
+        )
+
+        if dialect:
+            metadata["dialect"] = dialect
+            metadata["malloy/dialect"] = dialect
+            metadata["dagster/storage_kind"] = dialect
+
+        if conn_name:
+            metadata["malloy/connection"] = conn_name
+
+        if source_info and source_info.table_or_sql:
+            metadata["dagster/table_name"] = source_info.table_or_sql.strip("'\"")
+        else:
+            metadata["dagster/table_name"] = data.query_info.name
+
+        # Extract extra connection parameters from config if present
+        cfg = data.config if data.config is not None else (_load_malloy_config(data.file_path, data.config_path) if data.file_path else {})
+        if conn_name and cfg:
+            connections = cfg.get("connections", cfg)
+            c_info = (connections.get(conn_name) or connections.get(conn_name.lower(), {})) if isinstance(connections, dict) else {}
+            if isinstance(c_info, dict):
+                for k in ["database", "schema", "dataset", "projectId", "catalog"]:
+                    if k in c_info and c_info[k]:
+                        norm_k = "project_id" if k == "projectId" else k
+                        metadata[f"malloy/{norm_k}"] = str(c_info[k])
 
         if data.query_info.raw_code:
             metadata["malloy_source_code"] = MetadataValue.md(
@@ -245,7 +361,14 @@ class MalloyTranslator:
         )
 
     def get_source_asset_spec(
-        self, source_name: str, file_path: Path, parsed_model: MalloyParsedModel
+        self,
+        source_name: str,
+        file_path: Path,
+        parsed_model: MalloyParsedModel,
+        config: Optional[Dict[str, Any]] = None,
+        config_path: Optional[Union[str, Path]] = None,
+        db_resource_key: Optional[str] = None,
+        **kwargs: Any,
     ) -> AssetSpec:
         """Constructs an AssetSpec for a Malloy source semantic model."""
         source_info = parsed_model.sources.get(source_name)
@@ -261,19 +384,44 @@ class MalloyTranslator:
                     deps.append(key)
 
         kinds = {"semantic_model", "malloy"}
-        if source_info and source_info.connection:
-            clean_conn = source_info.connection.lower().strip()
-            if "duckdb" in clean_conn:
-                kinds.add("duckdb")
-            else:
-                kinds.add(clean_conn)
+        conn_name = source_info.connection if source_info else None
+        dialect = _resolve_dialect(
+            conn_name=conn_name,
+            config=config,
+            file_path=file_path,
+            config_path=config_path,
+            db_resource_key=db_resource_key,
+        )
 
-        metadata = {
+        if dialect and dialect in VALID_DIALECT_KINDS:
+            kinds.add(dialect)
+
+        metadata: Dict[str, Any] = {
             "file_path": str(file_path),
             "source_name": source_name,
         }
+        if conn_name:
+            metadata["malloy/connection"] = conn_name
+        if dialect:
+            metadata["malloy/dialect"] = dialect
+            metadata["dialect"] = dialect
+            metadata["dagster/storage_kind"] = dialect
+
         if source_info and source_info.table_or_sql:
+            raw_table = source_info.table_or_sql.strip("'\"")
             metadata["table_or_sql"] = source_info.table_or_sql
+            metadata["dagster/table_name"] = raw_table
+
+        cfg = config if config is not None else _load_malloy_config(file_path, config_path)
+        if conn_name and cfg:
+            connections = cfg.get("connections", cfg)
+            c_info = (connections.get(conn_name) or connections.get(conn_name.lower(), {})) if isinstance(connections, dict) else {}
+            if isinstance(c_info, dict):
+                for k in ["database", "schema", "dataset", "projectId", "catalog"]:
+                    if k in c_info and c_info[k]:
+                        norm_k = "project_id" if k == "projectId" else k
+                        metadata[f"malloy/{norm_k}"] = str(c_info[k])
+
         if source_info and source_info.raw_code:
             metadata["malloy_source_code"] = MetadataValue.md(
                 f"```malloy\n{source_info.raw_code}\n```"
